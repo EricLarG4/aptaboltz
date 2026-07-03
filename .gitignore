@@ -46,6 +46,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+python
 
 # ============================================
 # Misc
@@ -54,3 +55,4 @@ venv/
 *.docx
 .DS_Store
 Thumbs.db
+*.qmd
