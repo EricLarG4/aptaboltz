@@ -41,12 +41,12 @@ confidence_table_files/
 # ============================================
 # Python
 # ============================================
+python/
 __pycache__/
 *.egg-info/
 *.pyc
 .venv/
 venv/
-python
 
 # ============================================
 # Misc
@@ -55,4 +55,3 @@ python
 *.docx
 .DS_Store
 Thumbs.db
-*.qmd

@@ -30,17 +30,15 @@ library(bslib)
 # =====================================================================
 
 process_confidence <- function(project) {
-  """
-  Read all *confidence.csv files under *project* into a single data.table.
-
-  Columns containing JSON-like dict strings (e.g. `chains_ptm`,
-  `pair_chains_iptm`) are parsed and expanded into one column per chain
-  (e.g. `chains_ptm_chain0`, `chains_ptm_chain1`).  The original dict
-  columns are removed.
-
-  Returns a data.table with columns ordered:
-      base (model, experiment, id) -> metrics -> chain-specific columns.
-  """
+  # Read all *confidence.csv files under *project* into a single data.table.
+  #
+  # Columns containing JSON-like dict strings (e.g. `chains_ptm`,
+  # `pair_chains_iptm`) are parsed and expanded into one column per chain
+  # (e.g. `chains_ptm_chain0`, `chains_ptm_chain1`).  The original dict
+  # columns are removed.
+  #
+  # Returns a data.table with columns ordered:
+  #     base (model, experiment, id) -> metrics -> chain-specific columns.
 
   # 1. List all confidence CSV files recursively
   confidence_files <- list.files(
@@ -66,7 +64,7 @@ process_confidence <- function(project) {
       return(dt)
     }
   ) |>
-    rbindlist()
+    rbindlist(fill = TRUE)
 
   # 3. Parse dict columns and expand into chain-specific columns
   #    These columns contain JSON-like strings: {'0': value, '1': value, ...}
@@ -81,6 +79,7 @@ process_confidence <- function(project) {
   for (col in intersect(dict_cols, names(confidence_dt))) {
     # Replace single quotes with double quotes for JSON parsing
     parsed <- lapply(confidence_dt[[col]], function(x) {
+      if (is.na(x)) return(list())
       fromJSON(gsub("'", '"', x))
     })
 
@@ -131,20 +130,18 @@ process_confidence <- function(project) {
 # =====================================================================
 
 table_confidence <- function(confidence_dt) {
-  """
-  Build an interactive DT::datatable with colour-bar styling, wrap it in
-  a Bootstrap 5 theme (bslib), and save the result as an HTML file in the
-  project directory.
-
-  Styling rules:
-    - `Smaller is better` metrics (PAE, PDE, IPDE) get a horizontal bar
-      with angle = 270 (i.e. bars grow right-to-left so smaller values
-      appear fuller).
-    - All other metrics get angle = 90 (bars grow left-to-right).
-    - Chain-specific columns are assigned cycling hues derived from their
-      parent dict-column type.
-    - Ligand_iptm / protein_iptm columns are removed if all values are zero.
-  """
+  # Build an interactive DT::datatable with colour-bar styling, wrap it in
+  # a Bootstrap 5 theme (bslib), and save the result as an HTML file in the
+  # project directory.
+  #
+  # Styling rules:
+  #   - `Smaller is better` metrics (PAE, PDE, IPDE) get a horizontal bar
+  #     with angle = 270 (i.e. bars grow right-to-left so smaller values
+  #     appear fuller).
+  #   - All other metrics get angle = 90 (bars grow left-to-right).
+  #   - Chain-specific columns are assigned cycling hues derived from their
+  #     parent dict-column type.
+  #   - Ligand_iptm / protein_iptm columns are removed if all values are zero.
 
   # 1. Define colour palette for each metric column
   color_list <- list(
@@ -256,15 +253,8 @@ table_confidence <- function(confidence_dt) {
 # =====================================================================
 
 process_pxe <- function(project, type = c("pae", "pde")) {
-  """
-  Read all *_{type}.csv files under *project* into a named list of
-  data.tables, where names are the relative paths (model/experiment).
-
-  Parameters
-  ----------
-  project : str
-  type : `pae` or `pde`
-  """
+  # Read all *_{type}.csv files under *project* into a named list of
+  # data.tables, where names are the relative paths (model/experiment).
   pxe_files <- list.files(
     path = project,
     pattern = paste0(type, ".csv"),
@@ -276,13 +266,11 @@ process_pxe <- function(project, type = c("pae", "pde")) {
 }
 
 melt_pxe <- function(pxe) {
-  """
-  Convert a wide PAE/PDE matrix (residue × residue per model) into long
-  format suitable for ggplot2 geom_raster().
-
-  Each model's square matrix is melted into (res_1, res_2, pxe) triples,
-  and a 'model' column is added (1-indexed).
-  """
+  # Convert a wide PAE/PDE matrix (residue × residue per model) into long
+  # format suitable for ggplot2 geom_raster().
+  #
+  # Each model's square matrix is melted into (res_1, res_2, pxe) triples,
+  # and a 'model' column is added (1-indexed).
   melted_pxe <- lapply(
     unique(pxe$model),
     function(m) {
@@ -308,20 +296,18 @@ melt_pxe <- function(pxe) {
 # =====================================================================
 
 plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL) {
-  """
-  Generate and save faceted PAE or PDE heatmaps, one PNG per region.
-
-  If *ligand_number* is provided, the matrix is split into three regions:
-    - `DNA`    : residues 1..ligand_number-1 x 1..ligand_number-1
-    - `Ligand` : residues ligand_number..N x ligand_number..N
-    - `other`  : cross-region entries (not plotted)
-  When *ligand_number* is NULL, the full matrix is plotted as a single
-  "all" region.
-
-  PAE uses the khroma `nuuk` scale; PDE uses reversed `batlowW` scale.
-
-  Returns a list of ggplot objects (invisible).  Saves PNGs as a side effect.
-  """
+  # Generate and save faceted PAE or PDE heatmaps, one PNG per region.
+  #
+  # If *ligand_number* is provided, the matrix is split into three regions:
+  #   - `DNA`    : residues 1..ligand_number-1 x 1..ligand_number-1
+  #   - `Ligand` : residues ligand_number..N x ligand_number..N
+  #   - `other`  : cross-region entries (not plotted)
+  # When *ligand_number* is NULL, the full matrix is plotted as a single
+  # "all" region.
+  #
+  # PAE uses the khroma `nuuk` scale; PDE uses reversed `batlowW` scale.
+  #
+  # Returns a list of ggplot objects (invisible).  Saves PNGs as a side effect.
   title <- names(pxe)
 
   # Extract model / experiment from the list name
@@ -427,17 +413,15 @@ plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL) {
 # =====================================================================
 
 plot_plddt <- function(project) {
-  """
-  Generate pLDDT per-residue line plots for each experiment, faceted by
-  model (5 columns).
-
-  For each pLDDT CSV file the function:
-    1. Reads the corresponding YAML input to extract the DNA sequence.
-    2. Maps numeric residue indices to labelled residues (e.g. `G1`, `G2`).
-    3. Plots a line + colour-point trace of pLDDT vs. residue per model.
-
-  Returns a list of ggplot objects (invisible).  Saves PNGs as a side effect.
-  """
+  # Generate pLDDT per-residue line plots for each experiment, faceted by
+  # model (5 columns).
+  #
+  # For each pLDDT CSV file the function:
+  #   1. Reads the corresponding YAML input to extract the DNA sequence.
+  #   2. Maps numeric residue indices to labelled residues (e.g. `G1`, `G2`).
+  #   3. Plots a line + colour-point trace of pLDDT vs. residue per model.
+  #
+  # Returns a list of ggplot objects (invisible).  Saves PNGs as a side effect.
 
   # 1. Find all pLDDT CSV files
   plddt_files <- list.files(
