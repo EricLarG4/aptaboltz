@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boltz2_utils"
+version = "0.1.0"
+description = "Utilities for Boltz-2"
+authors = [
+    { name = "Eric Largy", email = "eric.largy@u-bordeaux.fr" }
+]
+[tool.setuptools.package-dir]
+"boltz2_utils" = "."
+
+[tool.setuptools.packages]
+find = {}

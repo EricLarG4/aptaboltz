@@ -1,0 +1,170 @@
+---
+title: Boltz processing
+jupyter: python3
+format:
+  html:
+    code-fold: true
+---
+
+## Setup
+
+```{python}
+from pymol import cmd
+import os
+from rdkit import Chem as chem
+from rdkit.Chem import rdDepictor
+from rdkit.Chem.Draw import rdMolDraw2D as chemdraw
+from rdkit.Chem.Draw import MolsToGridImage as chemdrawgrid
+
+try:
+    rdDepictor.SetPreferCoordGen(True)
+    HAVE_COORDGEN = True
+except ImportError:
+    HAVE_COORDGEN = False
+```
+
+## Definitions
+
+```{python}
+# dictionary of aptamer names and ligand CDC code
+LGD_DICT = {
+    "18th5Cl1": "PCI",
+    "Caff209-3bp": "CFF",
+    "Trp94-2bp": "TRP",
+    "His2": "HSM",
+    "MN4": "QI9",
+}
+
+NAME_MAP = {
+    "PCI": "Pentachlorophenol",
+    "CFF": "Caffeine",
+    "TRP": "Tryptophan",
+    "HSM": "Histamine",
+    "QI9": "Quinine",
+}
+```
+
+## Processing function
+
+```{python}
+def process_experiment(model, experiment):
+    print(f"Processing experiment: {model + experiment}")
+
+    # file path definitions
+    cif_path = "boltz_results_input/predictions/input/"
+    experiment_path = f"{model}/{experiment}/"
+    full_path = f"{experiment_path}{cif_path}"
+
+    # list cif files in the specified experiment directory
+    cif_files = [f for f in os.listdir(full_path) if f.endswith(".cif")]
+
+    # sort cif_files by filenames naturally to keep best models first
+    cif_files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
+
+    print(f"Found CIF files: {cif_files}")
+
+    # loading file with PyMOL
+    for cif_file in cif_files:
+        print(f"Loading CIF file: {full_path + cif_file}")
+        cmd.load(full_path + cif_file)
+
+    # align, join states and save multi-state file
+    cmd.alignto()
+    cmd.join_states("18th5Cl1", "input_model*")
+    cmd.delete("input_model*")
+    cmd.save(f"{experiment_path}{model}.cif", state=0)
+
+    print(f"Saved multi-state file: {experiment_path}{model}.cif")
+
+    # ligand extraction
+    lgd = LGD_DICT[model]
+    name = NAME_MAP[lgd]
+    lgd_path = f"{experiment_path}{name}.sdf"
+    print(f"Extracting ligand: {name}, Path: {lgd_path}")
+    cmd.save(lgd_path, selection=f"resn {lgd}", state=1)
+    cmd.reinitialize()
+
+    # get reference ligand from the pdb
+    cmd.fetch(lgd)
+    cmd.save(f"{experiment_path}{lgd}.sdf")
+    cmd.reinitialize()
+
+    # ligand prep
+    mols = {}
+    sdf_files = [f for f in os.listdir(experiment_path) if f.endswith(".sdf")]
+    print(f"sdf files found: {sdf_files}")
+    for file in sdf_files:
+        mol_name = file.split(".")[0]
+        mol = chem.SDMolSupplier(
+            f"{experiment_path}{file}", removeHs=False, sanitize=True
+        )[0]
+        if mol is None:
+            mol = chem.SDMolSupplier(
+                f"{experiment_path}{file}", removeHs=False, sanitize=False
+            )[0]
+        else:
+            mol = chem.RemoveHs(mol)
+        chem.AssignStereochemistry(mol, cleanIt=True, force=True)
+        rdDepictor.StraightenDepiction(mol)
+        mol.RemoveAllConformers()
+        mols[mol_name] = mol
+
+    mols = dict(sorted(mols.items()))
+
+    # chirality search
+    chiral_centers = []
+    for mol in mols.values():
+        chiral_center = chem.FindMolChiralCenters(mol, includeUnassigned=True)
+        # discard ? values
+        chiral_center = [
+            (idx, stereo) for idx, stereo in chiral_center if stereo != "?"
+        ]
+        chiral_index = [idx for idx, _ in chiral_center]
+        chiral_centers.append(chiral_index)
+
+    # grid drawing
+    template_drawer = chemdraw.MolDraw2DCairo(500, 500)
+    grid_opts = template_drawer.drawOptions()
+    grid_opts.addStereoAnnotation = True
+    grid_opts.highlightColour = (1, 0.843, 0, 0.75)  # gold, ~transparent
+    grid_opts.highlightBondWidthMultiplier = True
+    grid_opts.annotationFontScale = 1
+    grid_opts.atomNoteColour = (1, 0.678, 0, 1)  # pure orange, opaque
+    grid_opts.bondLineWidth = 3.5
+    grid_opts.legendFontSize = 30
+    grid_opts.singleColourWedgeBonds = True
+    grid_opts.unspecifiedStereoIsUnknown = False
+    grid_opts.additionalAtomLabelPadding = 0.05
+    grid_image = chemdrawgrid(
+        mols=list(mols.values()),
+        molsPerRow=2,
+        subImgSize=(500, 500),
+        legends=list(mols.keys()),
+        highlightAtomLists=chiral_centers,
+        drawOptions=grid_opts,  # <-- this is the key
+    )
+    grid_image.save(f"{experiment_path}{name}.png")
+    print(f"Wrote {name}.png in {experiment_path}")
+```
+
+## Application
+
+### MN4
+
+```{python}
+process_experiment("MN4", "J1110658")
+process_experiment("18th5Cl1", "J1111018")
+process_experiment("Caff209-3bp", "J1111019")
+process_experiment("His2", "J1111021")
+process_experiment("Trp94-2bp", "J1111020")
+process_experiment("Trp94-2bp", "J1111056")
+process_experiment("Trp94-2bp", "J1111057")
+```
+
+![](MN4/J1110658/Quinine.png)
+![](18th5Cl1/J1111018/Pentachlorophenol.png)
+![](Caff209-3bp/J1111019/Caffeine.png)
+![](His2/J1111021/Histamine.png)
+![](Trp94-2bp/J1111020/Tryptophan.png)
+![](Trp94-2bp/J1111056/Tryptophan.png)
+![](Trp94-2bp/J1111057/Tryptophan.png)
