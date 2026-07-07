@@ -55,3 +55,4 @@ venv/
 *.docx
 .DS_Store
 Thumbs.db
+boltz.qmd
