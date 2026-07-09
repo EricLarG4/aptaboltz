@@ -37,8 +37,9 @@ split into two layers:
 5. [Post-Processing: Python (PyMOL + RDKit)](#5-post-processing-python-pymol--rdkit)
 6. [Post-Processing: R Visualisation](#6-post-processing-r-visualisation)
 7. [Molecule Type Support](#7-molecule-type-support)
-8. [File Reference](#8-file-reference)
-9. [Appendix: Contact Constraints Format](#9-appendix-contact-constraints-format)
+8. [MD Force-Field Parameterisation Pipeline](#8-md-force-field-parameterisation-pipeline)
+9. [File Reference](#9-file-reference)
+10. [Appendix: Contact Constraints Format](#10-appendix-contact-constraints-format)
 
 ---
 
@@ -134,7 +135,7 @@ max_distance = 4.0
 ### Step 2 — (Optional) Define contact constraints
 
 Set `additional_pairs` to add extra residue-pair contact constraints.
-Three formats are accepted.  See [Appendix 9](#9-appendix-contact-constraints-format)
+Three formats are accepted.  See [Appendix 10](#10-appendix-contact-constraints-format)
 for full details and examples.
 
 Set to `None` to omit all additional constraints.
@@ -357,7 +358,113 @@ molecule-type agnostic and work for any system.
 
 ---
 
-## 8. File Reference
+
+## 8. MD Force-Field Parameterisation Pipeline
+
+In addition to the Boltz-2 prediction pipeline, the `templates/` directory
+contains four scripts for generating AMBER-compatible force-field parameters
+from quantum-mechanical (QM) calculations.  This is a separate workflow used
+to prepare **ligand parameters** for classical molecular-dynamics simulations
+that complement the Boltz-2 structure predictions.
+
+### Pipeline Overview
+
+```
+QM optimisation          ──→  orca_steps_wsl.sh         (WSL)
+   │                              │
+   │                     (copy .molden files to Windows)
+   │                              │
+   │                     multiwfn_steps_windows.ps1     (Windows)
+   │                              │
+   │                     (copy .chg file to WSL)
+   │                              │
+   ├──→  ligand_prep.sh          (WSL)
+   │         │
+   │         ├──  antechamber/   (GAFF2 types + BCC charges)
+   │         ├──  ff/            (prepin, frcmod, resp.pdb)
+   │         └──  (auxiliary files)
+   │
+   └──→  leap.sh                 (WSL)
+              │
+              └──  leap/CSS1_<LIGAND>_constrained/
+                     (prmtop, rst7, pdb per model)
+```
+
+### Step-by-Step Workflow
+
+#### Step 1 — ORCA single-point calculations (`orca_steps_wsl.sh`)
+
+Runs two consecutive single-point energy calculations with ORCA on an
+optimised ligand geometry (XYZ format):
+
+- **Gas phase** (B3LYP-D3/def2-TZVP with RIJCOSX)
+- **Solvent phase** (same level, CPCM-SMD continuum solvation)
+
+Both calculations produce Molden-format files with an Nval valence-electron
+header (required for Multiwfn RESP fitting with def2 ECP basis sets).
+
+**Deliverables:** `SP_gas.molden`, `SP_solv.molden`
+
+#### Step 2 — RESP2 charge fitting (`multiwfn_steps_windows.ps1`)
+
+Runs on Windows.  Reads the gas- and solvent-phase Molden files (copied from
+WSL) and invokes Multiwfn to compute RESP charges for each phase.  It then
+combines the two charge sets into RESP2 charges using the mixing parameter
+delta (default: 0.5, i.e. RESP2-0.5).
+
+**Deliverable:** `<ligand>.chg` — RESP2 charges for the ligand
+
+#### Step 3 — Ligand parameterisation (`ligand_prep.sh`)
+
+Takes the optimised `.mol2` and RESP2 `.chg` files from the `QM/` directory
+and runs the full AmberTools pipeline:
+
+1. **Antechamber** — assigns GAFF2 atom types and BCC charges.
+2. **Charge substitution** — replaces BCC charges with RESP2 charges.
+3. **Prepgen** — generates an Amber prepin library file.
+4. **Parmchk2** — checks for missing force-field parameters (frcmod).
+
+**Deliverables:**
+- `ff/<ligand>_resp.prepin` — Amber prepin library
+- `ff/<ligand>_resp.frcmod` — Force-field modifications
+- `ff/<ligand>_resp.pdb` — PDB-like file for tLeap complex preparation
+
+#### Step 4 — System solvation and ionisation (`leap.sh`)
+
+Creates a combined tLEAP input script that:
+- Loads force fields (GAFF2, DNA.OL21, OPC water)
+- Loads the ligand prepin and frcmod
+- Loads each PDB model from `pdb_for_md/CSS1_<LIGAND>_constrained/`
+- Solvates in an OPC water box (14.0 Å buffer)
+- Adds Na⁺/Mg²⁺/Cl⁻ ions with automatic Cl⁻ distribution (MgCl₂ + NaCl)
+
+Runs tLEAP on the combined input, then converts each rst7 to PDB with ambpdb.
+
+**Deliverables (per model):** `.prmtop`, `.rst7`, `.pdb`
+
+### Dependencies
+
+| Script | Platform | Dependencies |
+|--------|----------|-------------|
+| `orca_steps_wsl.sh` | WSL/Linux | ORCA (≥ 6.x), orca_2mkl |
+| `multiwfn_steps_windows.ps1` | Windows | Multiwfn, PowerShell |
+| `ligand_prep.sh` | WSL/Linux | AmberTools (antechamber, prepgen, parmchk2) |
+| `leap.sh` | WSL/Linux | AmberTools (tleap, ambpdb) |
+
+### Troubleshooting
+
+| Issue | Likely Cause | Solution |
+|-------|-------------|----------|
+| `SP_gas.molden` not found | WSL→Windows copy not performed | Copy Molden files from WSL to `<MoldenDir>` before running the PS1 script |
+| Multiwfn fails silently | Batch wrapper issue | Check host output for errors; verify Multiwfn path |
+| `mol2` file not found in `QM/` | Wrong filename or directory | Name the file `<MOL>.mol2` and place in `QM/` |
+| RESP2 charges look wrong | Atom ordering mismatch | Verify identical atom ordering between `.mol2` and `.chg` files |
+| tLEAP reports missing parameters | frcmod has ATTN warnings | Review `ff/<ligand>_resp.frcmod` and adjust |
+| OPC water model unrecognised | AmberTools version | Requires AmberTools ≥ 18 for `leaprc.water.opc` |
+
+---
+
+## 9. File Reference
 
 ### Shared utilities (imported, do not edit for each project)
 
@@ -379,10 +486,14 @@ molecule-type agnostic and work for any system.
 | `templates/input_file_generator.py` | `project`, `molecule_type`, `SEQUENCES`, `LIGANDS`, `additional_pairs`, `custom_msa` |
 | `templates/output_file_processing.py` | `project`, `models`, `LGD_DICT`, `NAME_MAP`, `suffixes` |
 | `templates/process.R` | `project`, `ligand_number` |
+| `templates/orca_steps_wsl.sh` | ORCA paths, molecule name, charge, multiplicity, solvent |
+| `templates/ligand_prep.sh` | `MOL`, `NC`, `S` (molecule name, net charge, verbosity) |
+| `templates/leap.sh` | Ligand name, model range, ion counts |
+| `templates/multiwfn_steps_windows.ps1` | Multiwfn path, Molden directory, output directory |
 
 ---
 
-## 9. Appendix: Contact Constraints Format
+## 10. Appendix: Contact Constraints Format
 
 The `additional_pairs` parameter in `input_file_generator.py` accepts
 three formats, from simplest to most powerful.
