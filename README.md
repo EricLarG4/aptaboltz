@@ -70,31 +70,31 @@ CSS/                        Real usage example (corticosteron-specific aptamers)
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  input_file_generator.py                                         │
-│  sequences + ligands + constraints → YAML + SLURM               │
+│  sequences + ligands + constraints → YAML + SLURM                │
 │  Outputs:  project/yaml/*.yaml, project/*.slurm                  │
 └──────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼  (transfer to cluster)
 ┌──────────────────────────────────────────────────────────────────┐
-│  Cluster: sbatch → Boltz-2                                      │
-│  Outputs:  {job}/boltz_results/input/predictions/*.cif          │
-│            *_confidence.json, *_pae.npz, *_pde.npz, *_plddt.npz │
+│  Cluster: sbatch → Boltz-2                                       │
+│  Outputs:  {job}/boltz_results/input/predictions/*.cif           │
+│            *_confidence.json, *_pae.npz, *_pde.npz, *_plddt.npz  │
 └──────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼  (copy results back)
 ┌──────────────────────────────────────────────────────────────────┐
 │  output_file_processing.py  (PyMOL + RDKit)                      │
-│  Alignment, colouring, ligand extraction, chirality, CSV export │
-│  Outputs:  *.pse, *.sdf, *_chirality.png                        │
-│            *_confidence.csv, *_pae.csv, *_pde.csv, *_plddt.csv  │
+│  Alignment, colouring, ligand extraction, chirality, CSV export  │
+│  Outputs:  *.pse, *.sdf, *_chirality.png                         │
+│            *_confidence.csv, *_pae.csv, *_pde.csv, *_plddt.csv   │
 └──────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  process.R  (R visualisation)                                    │
-│  Confidence table, PAE/PDE heatmaps, pLDDT plots                │
+┌────────────────────────────────────────────────────────────────────┐
+│  process.R  (R visualisation)                                      │
+│  Confidence table, PAE/PDE heatmaps, pLDDT plots                   │
 │  Outputs:  confidence_table.html, *_PAE.png, *_PDE.png, *_plddt.png│
-└──────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisation-pipeline).
@@ -103,29 +103,61 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
 
 ## Table of Contents
 
-1. [Prerequisites and Installation](#1-prerequisites-and-installation)
-2. [Setting Up a New Project](#2-setting-up-a-new-project)
-3. [Generating Input Files (YAML + SLURM)](#3-generating-input-files-yaml--slurm)
-4. [Running Boltz-2 on a Cluster](#4-running-boltz-2-on-a-cluster)
-5. [Post-Processing: Python (PyMOL + RDKit)](#5-post-processing-python-pymol--rdkit)
-6. [Post-Processing: R Visualisation](#6-post-processing-r-visualisation)
-7. [Molecule Type Support](#7-molecule-type-support)
-   - [7.1 Troubleshooting — Boltz-2 Prediction Pipeline](#71-troubleshooting--boltz-2-prediction-pipeline)
-8. [MD Force-Field Parameterisation Pipeline](#8-md-force-field-parameterisation-pipeline)
-   - [8.1 Pipeline Overview](#81-pipeline-overview)
-   - [8.2 Platform Notes](#82-platform-notes)
-   - [8.3 Step 0 — QM Geometry Optimisation](#83-step-0--qm-geometry-optimisation-external)
-   - [8.4 Step 1 — ORCA Single-Point Calculations](#84-step-1--orca-single-point-calculations)
-   - [8.5 Step 2 — RESP2 Charge Fitting](#85-step-2--resp2-charge-fitting)
-   - [8.6 Step 3 — Ligand Parameterisation](#86-step-3--ligand-parameterisation)
-   - [8.7 Step 4 — Model Preparation for MD](#87-step-4--model-preparation-for-md)
-   - [8.8 Step 5 — System Solvation & Ionisation](#88-step-5--system-solvation--ionisation)
-   - [8.9 Ion Concentration Calculator](#89-ion-concentration-calculator)
-   - [8.10 Required Files Summary](#810-required-files-summary)
-   - [8.11 Dependencies Table](#811-dependencies-table)
-   - [8.12 Troubleshooting](#812-troubleshooting)
-9. [File Reference](#9-file-reference)
-10. [Appendix: Contact Constraints Format](#10-appendix-contact-constraints-format)
+- [aptaBoltz — Nucleic-Acid / Aptamer Analysis Pipeline for Boltz-2](#aptaboltz--nucleic-acid--aptamer-analysis-pipeline-for-boltz-2)
+    - [Scope](#scope)
+    - [Repository Structure](#repository-structure)
+  - [Boltz-2 Prediction Pipeline Overview](#boltz-2-prediction-pipeline-overview)
+  - [Table of Contents](#table-of-contents)
+  - [1. Prerequisites and Installation](#1-prerequisites-and-installation)
+    - [1.1 Platform Requirements](#11-platform-requirements)
+    - [1.2 Installation Options](#12-installation-options)
+    - [1.3 R Environment Setup](#13-r-environment-setup)
+    - [1.4 Verify Installation](#14-verify-installation)
+  - [2. Setting Up a New Project](#2-setting-up-a-new-project)
+    - [2.1 Boltz-2 Prediction Project](#21-boltz-2-prediction-project)
+    - [2.2 MD Parameterisation Project](#22-md-parameterisation-project)
+  - [3. Generating Input Files (YAML + SLURM)](#3-generating-input-files-yaml--slurm)
+    - [3.1 Step-by-Step Editing Guide](#31-step-by-step-editing-guide)
+    - [3.2 Generated Files](#32-generated-files)
+  - [4. Running Boltz-2 on a Cluster](#4-running-boltz-2-on-a-cluster)
+    - [4.1 Files to Transfer](#41-files-to-transfer)
+    - [4.2 Expected Outputs (per job)](#42-expected-outputs-per-job)
+    - [4.3 Common Submission Patterns](#43-common-submission-patterns)
+  - [5. Post-Processing: Python (PyMOL + RDKit)](#5-post-processing-python-pymol--rdkit)
+    - [5.1 Configuration](#51-configuration)
+    - [5.2 Usage](#52-usage)
+    - [5.3 What the Script Does](#53-what-the-script-does)
+    - [5.4 Generated Files](#54-generated-files)
+    - [5.5 Controlling Which Job Directories Are Processed](#55-controlling-which-job-directories-are-processed)
+  - [6. Post-Processing: R Visualisation](#6-post-processing-r-visualisation)
+    - [6.1 Minimal Setup](#61-minimal-setup)
+    - [6.2 Generated Files](#62-generated-files)
+    - [6.3 Function Reference](#63-function-reference)
+  - [7. Molecule Type Support](#7-molecule-type-support)
+    - [7.1 Troubleshooting — Boltz-2 Prediction Pipeline](#71-troubleshooting--boltz-2-prediction-pipeline)
+  - [8. MD Force-Field Parameterisation Pipeline](#8-md-force-field-parameterisation-pipeline)
+    - [8.1 Pipeline Overview](#81-pipeline-overview)
+    - [8.2 Platform Notes](#82-platform-notes)
+    - [8.3 Step 0 — QM Geometry Optimisation (external)](#83-step-0--qm-geometry-optimisation-external)
+    - [8.4 Step 1 — ORCA Single-Point Calculations](#84-step-1--orca-single-point-calculations)
+    - [8.5 Step 2 — RESP2 Charge Fitting](#85-step-2--resp2-charge-fitting)
+      - [8.5.1 Windows (recommended): `multiwfn_steps_windows.ps1`](#851-windows-recommended-multiwfn_steps_windowsps1)
+      - [8.5.2 Linux alternative: `multiwfn_steps_linux.sh`](#852-linux-alternative-multiwfn_steps_linuxsh)
+    - [8.6 Step 3 — Ligand Parameterisation](#86-step-3--ligand-parameterisation)
+    - [8.7 Step 4 — Model Preparation for MD](#87-step-4--model-preparation-for-md)
+    - [8.8 Step 5 — System Solvation \& Ionisation](#88-step-5--system-solvation--ionisation)
+    - [8.9 Ion Concentration Calculator](#89-ion-concentration-calculator)
+    - [8.10 Required Files Summary](#810-required-files-summary)
+    - [8.11 Dependencies Table](#811-dependencies-table)
+    - [8.12 Troubleshooting](#812-troubleshooting)
+  - [9. File Reference](#9-file-reference)
+    - [Shared utilities (imported, do not edit for each project)](#shared-utilities-imported-do-not-edit-for-each-project)
+    - [Project-specific templates (copy and edit per project)](#project-specific-templates-copy-and-edit-per-project)
+  - [10. Appendix: Contact Constraints Format](#10-appendix-contact-constraints-format)
+    - [Format A: Flat list (backward-compatible)](#format-a-flat-list-backward-compatible)
+    - [Format B: Per-sequence dictionary](#format-b-per-sequence-dictionary)
+    - [Format C: Per-sequence + per-ligand dictionary (with wildcard)](#format-c-per-sequence--per-ligand-dictionary-with-wildcard)
+    - [What happens when constraints are defined](#what-happens-when-constraints-are-defined)
 
 ---
 
@@ -559,15 +591,15 @@ simulations that complement the Boltz-2 structure predictions.
 ```
                             ┌──────────────────────────────────────────┐
                             │  QM Geometry Optimisation (external*)    │
-                            │  →  QM/<MOL>.xyz  (or .mol2)            │
+                            │  →  QM/<MOL>.xyz  (or .mol2)             │
                             └──────────────────────────────────────────┘
                                             │
                                             ▼
                             ┌──────────────────────────────────────────┐
                             │  orca_steps_wsl.sh           (WSL/Linux) │
-                            │  2 × SP (gas + solvent CPCM-SMD)        │
-                            │  →  SP_gas.molden                       │
-                            │  →  SP_solv.molden                     │
+                            │  2 × SP (gas + solvent CPCM-SMD)         │
+                            │  →  SP_gas.molden                        │
+                            │  →  SP_solv.molden                       │
                             └──────────────────────────────────────────┘
                                             │
                           ┌─────────────────┴─────────────────┐
@@ -575,7 +607,7 @@ simulations that complement the Boltz-2 structure predictions.
          ┌──────────────────────────────┐    ┌──────────────────────────────┐
          │  multiwfn_steps_windows.ps1  │    │  multiwfn_steps_linux.sh     │
          │  (Windows, recommended)      │    │  (Linux/Unix, alternative)   │
-         │  →  QM/<mol>.chg (RESP2)    │    │  →  QM/<mol>.chg (RESP2)     │
+         │  →  QM/<mol>.chg (RESP2)     │    │  →  QM/<mol>.chg (RESP2)     │
          └──────────────────────────────┘    └──────────────────────────────┘
                           │                                   │
                           └─────────────────┬─────────────────┘
@@ -584,9 +616,9 @@ simulations that complement the Boltz-2 structure predictions.
                             ┌──────────────────────────────────────────┐
                             │  ligand_prep.sh             (WSL/Linux)  │
                             │  AmberTools GAFF2 + RESP2 charges        │
-                            │  →  ff/<lig>_resp.prepin               │
-                            │  →  ff/<lig>_resp.frcmod               │
-                            │  →  ff/<lig>_resp.pdb                  │
+                            │  →  ff/<lig>_resp.prepin                 │
+                            │  →  ff/<lig>_resp.frcmod                 │
+                            │  →  ff/<lig>_resp.pdb                    │
                             └──────────────────────────────────────────┘
                                             │
                                             ▼
@@ -594,15 +626,15 @@ simulations that complement the Boltz-2 structure predictions.
                             │  model_prep.py              (PyMOL)      │
                             │  Boltz-2 prediction CIFs → MD-ready PDB  │
                             │  →  pdb_for_md/<PREFIX>_<LIG>_constrained│
-                            │      /input_model_{i}.pdb              │
+                            │      /input_model_{i}.pdb                │
                             └──────────────────────────────────────────┘
                                             │
                                             ▼
                             ┌──────────────────────────────────────────┐
                             │  leap.sh                   (WSL/Linux)   │
                             │  tLEAP solvation + ionisation            │
-                            │  →  leap/<PREFIX>_<LIG>_constrained/    │
-                            │      cplx_{i}.prmtop / .rst7 / .pdb    │
+                            │  →  leap/<PREFIX>_<LIG>_constrained/     │
+                            │      cplx_{i}.prmtop / .rst7 / .pdb      │
                             └──────────────────────────────────────────┘
                                             │
                                             ▼
