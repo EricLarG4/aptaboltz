@@ -3,10 +3,11 @@
 # ligand_prep.sh — AmberTools GAFF2 parameterisation pipeline for ligands
 #
 # DESCRIPTION
-#   Takes an optimised .mol2 file from the QM/ directory and runs the full
-#   AmberTools parameterisation pipeline:
+#   Takes an optimised .mol2 file (or .xyz as fallback) from the QM/ directory
+#   and runs the full AmberTools parameterisation pipeline:
+#     0. (Fallback) Convert .xyz to .mol2 via antechamber if .mol2 not found.
 #     1. Assign GAFF2 atom types and BCC charges with antechamber.
-#     2. Replace BCC charges with RESP2 charges from QM (opt.chg file).
+#     2. Replace BCC charges with RESP2 charges from QM (_opt.chg file).
 #     3. Generate an Amber prepin library file with prepgen.
 #     4. Check missing force-field parameters with parmchk2.
 #
@@ -15,6 +16,7 @@
 #
 # DEPENDENCIES
 #   - AmberTools (antechamber, prepgen, parmchk2)
+#   - OpenBabel (optional, only if converting .xyz → .mol2 via obabel)
 #   - Bash (Linux/WSL)
 #
 # USAGE
@@ -26,8 +28,12 @@
 #     S    — antechamber verbosity (0=silent, 2=verbose)
 #
 #   The script expects:
-#     QM/${MOL}.mol2    — optimised ligand structure (output from QM ORCA/Multiwfn)
-#     QM/${MOL}_opt.chg — RESP2 charges (output from multiwfn_steps_windows.ps1)
+#     QM/${MOL}.mol2       — optimised ligand structure (preferred, see Step 0)
+#     QM/${MOL}_opt.chg    — RESP2 charges (from multiwfn_steps*)
+#
+#   If QM/${MOL}.mol2 is NOT found, the script attempts to fall back to
+#     QM/${MOL}.xyz        — optimised ligand in XYZ format (from QM package)
+#   and converts it to mol2 using either antechamber or OpenBabel.
 #
 # OUTPUT STRUCTURE
 #   antechamber/
@@ -42,17 +48,22 @@
 #   ff/parmchk2/          — ANTECHAMBER.FRCMOD and ATOMTYPE.INF (auxiliary)
 #
 # WORKFLOW (full pipeline order)
-#   1. QM optimisation + RESP2 charges: orca_steps_wsl.sh → multiwfn_steps_windows.ps1
-#   2. Ligand parameterisation:          ligand_prep.sh (this script)
-#   3. System solvation + ionisation:    leap.sh
-#   4. MD production:                    (user-defined)
+#   0. QM geometry optimisation (external): produces QM/${MOL}.xyz
+#   1. ORCA single-point:                   orca_steps_wsl.sh
+#   2. RESP2 charge fitting:                multiwfn_steps_windows.ps1 or multiwfn_steps_linux.sh
+#   3. Ligand parameterisation:             ligand_prep.sh (this script)
+#   4. Model preparation for MD:            model_prep.py
+#   5. System solvation + ionisation:       leap.sh
+#   6. MD production:                       (user-defined)
 #
 # TROUBLESHOOTING
-#   - If the .mol2 or .chg files are missing, the script exits with an error.
+#   - If both .mol2 and .xyz are missing, the script exits with an error.
 #   - Check the output of parmchk2 for ATTN warnings and non-zero penalty terms.
 #   - The RESP2 charge substitution (Step 2) relies on the same atom ordering
 #     in both the .mol2 and the .chg file.  Verify alignment if charges look
 #     incorrect.
+#   - The .xyz geometry must be the same optimised geometry used for the
+#     ORCA single-point calculations (orca_steps_wsl.sh).
 #
 # EXAMPLE
 #   # Prepare ligand "hcy" (default), neutral, with verbose output
@@ -106,8 +117,26 @@ cd antechamber
 
 mol2_file=$(find ../QM -maxdepth 1 -iname "${MOL}.mol2" | head -1)
 if [ -z "$mol2_file" ]; then
-    echo -e "\033[1;31mERROR:${RST} ${MOL}.mol2 not found in QM/"
-    exit 1
+    echo -e "  ${YELLOW}${MOL}.mol2 not found in QM/ — trying .xyz fallback...${RST}"
+    xyz_file=$(find ../QM -maxdepth 1 -iname "${MOL}.xyz" | head -1)
+    if [ -z "$xyz_file" ]; then
+        echo -e "\033[1;31mERROR:${RST} Neither ${MOL}.mol2 nor ${MOL}.xyz found in QM/"
+        echo -e "  ${DIM}Provide an optimised structure as QM/${MOL}.mol2 or QM/${MOL}.xyz${RST}"
+        exit 1
+    fi
+    echo -e "  ${DIM}Found ${xyz_file} — converting to mol2...${RST}"
+    # Try antechamber first (AmberTools); fall back to OpenBabel
+    if command -v antechamber &>/dev/null; then
+        antechamber -fi xyz -i "$xyz_file" -fo mol2 -o "${MOL}.mol2" -at gaff2 -c none -s 0 -nc $NC
+        mol2_file="${MOL}.mol2"
+    elif command -v obabel &>/dev/null; then
+        obabel "$xyz_file" -O "${MOL}.mol2"
+        mol2_file="${MOL}.mol2"
+    else
+        echo -e "\033[1;31mERROR:${RST} Need antechamber or obabel to convert .xyz to .mol2"
+        exit 1
+    fi
+    echo -e "  ${GREEN}Converted ${xyz_file} → ${mol2_file}${RST}"
 fi
 
 antechamber \

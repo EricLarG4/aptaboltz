@@ -40,6 +40,11 @@ table_confidence(process_confidence(project))
 # `ligand_number` is the residue index at which the ligand region begins
 # (i.e. the number of DNA residues).  The matrix is split into DNA and
 # Ligand regions at this boundary.  Set to NULL to plot the full matrix.
+#
+# Example: for a 46-mer DNA aptamer, the ligand starts at residue 47:
+#   ligand_number = 47
+# For a 30-mer RNA, ligand starts at residue 31:
+#   ligand_number = 31
 
 pae_dt <- process_pxe(project, type = "pae")
 pde_dt <- process_pxe(project, type = "pde")
