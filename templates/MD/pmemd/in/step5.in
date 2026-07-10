@@ -1,0 +1,38 @@
+!! =============================================================================
+!! STEP 5 — Final Unrestrained Minimisation
+!! =============================================================================
+!!
+!! Purpose:         Minimise the entire system with no positional restraints.
+!!                  This is the final minimisation before the first NPT step.
+!! Engine:          pmemd (CPU)
+!! Restraints:      NONE (ntr=0)
+!! Simulation type: minimisation (imin=1)
+!!
+!! !! ADJUST FOR YOUR SYSTEM:
+!!   maxcyc / ncyc        — Minimisation length             [1000 / 10]
+!!
+!! Note: No residue mask to change — restraints are OFF.
+!! =============================================================================
+
+Final minimisation without restraints
+ &cntrl
+  imin=1,                   ! Energy minimisation
+  ntmin=2,                  ! Steepest descent only
+
+  !! ADJUST: minimisation steps
+  maxcyc=1000,              ! Total minimisation steps
+  ncyc=10,                  ! SD steps before CG (ignored if ntmin=2)
+
+  cut=8.0,                  ! Nonbonded cutoff (A)
+  ntb=1,                    ! Constant volume
+
+  ntc=1, ntf=1,             ! No SHAKE (minimisation)
+
+  ntpr=50,                  ! Energy print frequency
+  ntwx=500,                 ! Trajectory write frequency
+  ntwr=500,                 ! Restart write frequency
+
+  ntr=0,                    ! NO positional restraints
+
+  nmropt=0                  ! NMR restraints OFF
+ /

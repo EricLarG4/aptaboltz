@@ -1,0 +1,63 @@
+!! =============================================================================
+!! STEP 10 — Production NPT Simulation
+!! =============================================================================
+!!
+!! Purpose:         Long unrestrained NPT production run.  This is the
+!!                  main sampling step of the preparation protocol.
+!! Engine:          pmemd.cuda (GPU)
+!! Restraints:      NONE (ntr=0)
+!! Simulation type: NPT dynamics, 100 ns @ 2 fs
+!!
+!! !! ADJUST FOR YOUR SYSTEM:
+!!   nstlim               — Production length               [50000000]
+!!                          Formula: steps = time(ns) * 1000 / dt(ps)
+!!                          Example: 100 ns / 0.002 ps = 50000000
+!!   dt                   — Timestep                        [0.002 ps]
+!!   cut                  — Nonbonded cutoff                [9.0 A]
+!!   ntpr / ntwx / ntwr   — Output frequencies             [500 / 5000 / 50000]
+!!
+!! =============================================================================
+
+Long NPT production, 100 ns
+ &cntrl
+  imin=0,                   ! MD simulation
+  irest=1,                  ! Restart from previous trajectory
+  ntx=5,                    ! Read coordinates AND velocities
+  ig=-1,                    ! Random seed
+
+  !! ADJUST: production length
+  !! nstlim = desired_ns * 1000 / dt(ps)
+  !! Example: 1000000 steps = 2 ns @ 0.002 ps
+  nstlim=50000000,          !! ADJUST: total steps (currently 100000 ps = 100 ns)
+  dt=0.002,                 ! Timestep (ps)
+
+  !! ADJUST: temperature
+  temp0=300.0,              ! Target temperature (K)
+  tempi=300.0,              ! Initial temperature (K)
+  ntt=3, gamma_ln=5.0,      ! Langevin thermostat
+
+  !! ADJUST: pressure coupling
+  ntb=2,                    ! Constant pressure (NPT)
+  ntp=1,                    ! Isotropic pressure coupling
+  pres0=1.0,                ! Reference pressure (atm)
+  barostat=2,               ! Monte Carlo barostat
+  mcbarint=100,             ! Barostat interval (steps)
+
+  iwrap=0,                  ! No coordinate wrapping
+  nscm=1000,                ! COM removal every 1000 steps
+
+  ntc=2, ntf=2,             ! SHAKE on H-bonded bonds
+
+  !! ADJUST: cut can be increased for production (e.g. 9.0 A)
+  cut=9.0,                  !! ADJUST: nonbonded cutoff (A)
+
+  !! ADJUST: output frequency — reduce for long runs
+  ntpr=500,                 ! Energy print frequency
+  ntwx=5000,                ! Trajectory write frequency
+  ntwr=50000,               ! Restart write frequency
+  ntwv=-1,                  ! Do not write velocities
+
+  ntr=0,                    ! NO positional restraints
+
+  nmropt=0                  ! NMR restraints OFF
+ /

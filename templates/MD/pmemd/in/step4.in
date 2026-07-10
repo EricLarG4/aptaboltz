@@ -1,0 +1,44 @@
+!! =============================================================================
+!! STEP 4 — Solute Minimisation with Weak Restraints
+!! =============================================================================
+!!
+!! Purpose:         Minimise the solute with weak positional restraints.
+!!                  Continues the gradual release of restraints from Steps
+!!                  3->4->5.
+!! Engine:          pmemd (CPU)
+!! Restraints:      Heavy atoms of the entire solute (very weak)
+!! Simulation type: minimisation (imin=1)
+!!
+!! !! ADJUST FOR YOUR SYSTEM:
+!!   :N_MASK              — Solute residue range            [currently :1-47]
+!!   restraint_wt         — Restraint force constant        [currently 0.1]
+!!   maxcyc / ncyc        — Minimisation length             [1000 / 10]
+!!
+!! Reference: CSS1_HCY_constrained (46-nt DNA aptamer + HCY ligand, res 1-47)
+!! =============================================================================
+
+Minimise solute with weak restraints
+ &cntrl
+  imin=1,                   ! Energy minimisation
+  ntmin=2,                  ! Steepest descent only
+
+  !! ADJUST: minimisation steps
+  maxcyc=1000,              ! Total minimisation steps
+  ncyc=10,                  ! SD steps before CG (ignored if ntmin=2)
+
+  cut=8.0,                  ! Nonbonded cutoff (A)
+  ntb=1,                    ! Constant volume
+
+  ntc=1, ntf=1,             ! No SHAKE (minimisation)
+
+  ntpr=50,                  ! Energy print frequency
+  ntwx=500,                 ! Trajectory write frequency
+  ntwr=500,                 ! Restart write frequency
+
+  !! ADJUST: positional restraints on solute
+  ntr=1,                    ! Positional restraints ON
+  restraint_wt=0.1,         !! ADJUST: very weak restraint (kcal/mol·A^2)
+  restraintmask=":1-47&!@H=",  !! ADJUST :N_MASK — heavy atoms of solute
+
+  nmropt=0                  ! NMR restraints OFF
+ /

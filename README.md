@@ -8,6 +8,9 @@ A modular pipeline for:
 2. **MD force-field parameterisation** — RESP2 charges, GAFF2 atom types,
    solvated Amber systems ready for molecular-dynamics production runs
    ([§8](#8-md-force-field-parameterisation-pipeline)).
+3. **MD preparation and minimisation** — 11-step Amber production protocol
+   (minimisation → equilibration → 100 ns NPT → final minimisation) as a
+   SLURM array job ([§9](#9-amber-md-preparation-and-minimisation-pipeline)).
 
 Designed primarily for **DNA and RNA aptamers** with small-molecule ligands.
 Basic protein support is available — see [§7](#7-molecule-type-support).
@@ -36,17 +39,27 @@ boltz_R_utils/              R scripts (sourced by all projects)
   processor.R                 Confidence, PAE, PDE, pLDDT reading + plotting
   install_packages.R          One-time R + conda environment setup
 
-templates/                  10 project-specific files with PLACEHOLDER_ values
+templates/                  Project-specific files with PLACEHOLDER_ values
+  (root)                      Boltz-2 prediction scripts (§3–§6)
+  MD/                         MD parameterisation + production scripts (§8–§9)
   input_file_generator.py     Define sequences, ligands, constraints (§3)
   output_file_processing.py   Python post-processing (§5)
   process.R                   R visualisation (§6)
-  orca_steps_wsl.sh           ORCA single-point calculations (§8.4)
-  multiwfn_steps_windows.ps1  RESP2 charge fitting, Windows (§8.5.1)
-  multiwfn_steps_linux.sh     RESP2 charge fitting, Linux (§8.5.2)
-  ligand_prep.sh              AmberTools GAFF2 parameterisation (§8.6)
-  model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
-  leap.sh                     Amber tLEAP solvation + ionisation (§8.8)
-  ions.R                      Ion concentration calculator (§8.9)
+  yaml/                       (placeholder — generated YAML files)
+  msa/                        (placeholder — custom MSAs)
+  MD/
+    orca_steps_wsl.sh           ORCA single-point calculations (§8.4)
+    multiwfn_steps_windows.ps1  RESP2 charge fitting, Windows (§8.5.1)
+    multiwfn_steps_linux.sh     RESP2 charge fitting, Linux (§8.5.2)
+    ligand_prep.sh              AmberTools GAFF2 parameterisation (§8.6)
+    model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
+    leap.sh                     Amber tLEAP solvation + ionisation (§8.8)
+    R/ions.R                    Ion concentration calculator (§8.9)
+    pmemd/in/
+      step1.in — step10.in       Amber MD input control files (§9)
+      final_min.in                Post-production minimisation (§9)
+    slurm/
+      PrepAndMin.slurm            Amber MD prep + minimisation SLURM array (§9)
 
 CSS/                        Real usage example (corticosteron-specific aptamers)
   input_file_generator.py     CSS-specific sequences: CSS1, CSS2, CSS3
@@ -150,10 +163,18 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
     - [8.10 Required Files Summary](#810-required-files-summary)
     - [8.11 Dependencies Table](#811-dependencies-table)
     - [8.12 Troubleshooting](#812-troubleshooting)
-  - [9. File Reference](#9-file-reference)
+  - [9. Amber MD Preparation and Minimisation Pipeline](#9-amber-md-preparation-and-minimisation-pipeline)
+    - [9.1 Pipeline Overview](#91-pipeline-overview)
+    - [9.2 The 11-Step Protocol](#92-the-11-step-protocol)
+    - [9.3 Input File Descriptions](#93-input-file-descriptions)
+    - [9.4 Output Files (per task)](#94-output-files-per-task)
+    - [9.5 SLURM Configuration](#95-slurm-configuration)
+    - [9.6 Customisation Guide](#96-customisation-guide)
+    - [9.7 Troubleshooting](#97-troubleshooting)
+  - [10. File Reference](#10-file-reference)
     - [Shared utilities (imported, do not edit for each project)](#shared-utilities-imported-do-not-edit-for-each-project)
     - [Project-specific templates (copy and edit per project)](#project-specific-templates-copy-and-edit-per-project)
-  - [10. Appendix: Contact Constraints Format](#10-appendix-contact-constraints-format)
+  - [11. Appendix: Contact Constraints Format](#11-appendix-contact-constraints-format)
     - [Format A: Flat list (backward-compatible)](#format-a-flat-list-backward-compatible)
     - [Format B: Per-sequence dictionary](#format-b-per-sequence-dictionary)
     - [Format C: Per-sequence + per-ligand dictionary (with wildcard)](#format-c-per-sequence--per-ligand-dictionary-with-wildcard)
@@ -262,20 +283,25 @@ For each new structure-prediction project (e.g. `my_project`):
 ### 2.2 MD Parameterisation Project
 
 For the MD force-field parameterisation workflow (see
-[§8](#8-md-force-field-parameterisation-pipeline) for full details):
+[§8](#8-md-force-field-parameterisation-pipeline) and
+[§9](#9-amber-md-preparation-and-minimisation-pipeline) for full details):
 
 ```bash
 mkdir -p my_project/MD/QM
 mkdir -p my_project/MD/ff
-# Copy the relevant MD templates
-cp templates/orca_steps_wsl.sh              my_project/MD/
-cp templates/multiwfn_steps_windows.ps1     my_project/MD/   # Windows
-cp templates/multiwfn_steps_linux.sh        my_project/MD/   # Linux
-cp templates/ligand_prep.sh                 my_project/MD/
-cp templates/model_prep.py                  my_project/MD/
-cp templates/leap.sh                        my_project/MD/
-cp templates/ions.R                         my_project/MD/
+mkdir -p my_project/MD/pmemd/in
+mkdir -p my_project/MD/slurm
+# Copy ALL MD template files (parameterisation + production)
+cp -r templates/MD/*       my_project/MD/
+cp templates/MD/R/ions.R    my_project/MD/R/
 ```
+
+This copies all MD pipeline scripts into the correct subdirectories:
+
+| Copy command | Destination | Files |
+|-------------|------------|-------|
+| `cp -r templates/MD/*` | `my_project/MD/` | `leap.sh`, `ligand_prep.sh`, `model_prep.py`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `pmemd/in/*.in`, `slurm/PrepAndMin.slurm` |
+| `cp templates/MD/R/ions.R` | `my_project/MD/R/` | `ions.R` |
 
 ---
 
@@ -921,7 +947,191 @@ command directly to the console.
 | OPC water model unrecognised | AmberTools version | Requires AmberTools ≥ 18 for `leaprc.water.opc` |
 | Ion counts are wrong | Incorrect Nw or Q | Run `leap.sh` once with approximate values, extract Nw from leap.log, then use `ions.R` to recalculate |
 
-## 9. File Reference
+---
+
+## 9. Amber MD Preparation and Minimisation Pipeline
+
+In addition to the Boltz-2 prediction and ligand-parameterisation workflows,
+the repository provides a SLURM-based **Amber MD preparation and minimisation
+pipeline** (`PrepAndMin.slurm`).  This pipeline takes the solvated Amber
+systems from `leap.sh` (§8.8) and runs an 11-step protocol (minimisation +
+equilibration + 100 ns production + final minimisation).
+
+### 9.1 Pipeline Overview
+
+```
+leap.sh                                          (§8.8)
+  │
+  │  Deliverables:
+  │    leap/<EXPERIMENT>/cplx_{N}.prmtop
+  │    leap/<EXPERIMENT>/cplx_{N}.rst7
+  ▼
+PrepAndMin.slurm  (SLURM array job)
+  │
+  │  11-step protocol on compute-node temporary storage
+  │  Step  1:  pmemd     — solvent minimisation, restrained
+  │  Step  2:  pmemd.cuda— NVT heating, restrained              GPU
+  │  Step  3:  pmemd     — solute minimisation, medium restraints
+  │  Step  4:  pmemd     — solute minimisation, weak restraints
+  │  Step  5:  pmemd     — unrestrained minimisation
+  │  Step  6:  pmemd.cuda— NPT equilibration, mild restraints   GPU
+  │  Step  7:  pmemd.cuda— NPT equilibration, reduced restraints GPU
+  │  Step  8:  pmemd.cuda— NPT, backbone-only restraints        GPU
+  │  Step  9:  pmemd.cuda— short unrestrained NPT, 2 fs dt      GPU
+  │  Step 10:  pmemd.cuda— 100 ns production NPT                GPU
+  │  Step 11:  pmemd.cuda— final minimisation                   GPU
+  │
+  ▼
+Output directories:
+  pmemd/out/<EXPERIMENT>/J<jobid>/task_<N>/
+  ├── prep/
+  │   ├── step1{N}.out, .ncrst, .nc, .info      — per-step files
+  │   ├── step2{N}.out, .ncrst, .nc, .info
+  │   ├── ...
+  │   └── pdb/
+  │       ├── step1{N}.pdb
+  │       └── ...
+  ├── final_min/
+  │   ├── final_min{N}.out, .ncrst, .info
+  │   └── pdb/
+  │       ├── final_min{N}_cpptrajed.pdb
+  │       └── final_min{N}_stripped.pdb
+  └── run.info                                    — job metadata
+```
+
+### 9.2 The 11-Step Protocol
+
+| Step | Engine | Restraints | Length | dt | Purpose |
+|------|--------|-----------|--------|----|---------|
+| 1 | `pmemd` (CPU) | Heavy atoms, 5.0 kcal/mol·A² | 1000 steps SD | — | Relax solvent/ions |
+| 2 | `pmemd.cuda` (GPU) | Heavy atoms, 5.0 kcal/mol·A² | 15000 steps | 1 fs | NVT heating to 300 K |
+| 3 | `pmemd` (CPU) | Heavy atoms, 2.0 kcal/mol·A² | 1000 steps SD | — | Minimise solute |
+| 4 | `pmemd` (CPU) | Heavy atoms, 0.1 kcal/mol·A² | 1000 steps SD | — | Minimise solute (weak) |
+| 5 | `pmemd` (CPU) | **None** | 1000 steps SD | — | Unrestrained minimisation |
+| 6 | `pmemd.cuda` (GPU) | Heavy atoms, 1.0 kcal/mol·A² | 5000 steps | 1 fs | First NPT equilibration |
+| 7 | `pmemd.cuda` (GPU) | Heavy atoms, 0.5 kcal/mol·A² | 5000 steps | 1 fs | NPT, weaker restraints |
+| 8 | `pmemd.cuda` (GPU) | Backbone only, 0.5 kcal/mol·A² | 10000 steps | 1 fs | NPT, backbone-only |
+| 9 | `pmemd.cuda` (GPU) | **None** | 5000 steps | 2 fs | Unrestrained NPT (warm-up) |
+| 10 | `pmemd.cuda` (GPU) | **None** | 50000000 steps | 2 fs | **100 ns production** |
+| 11 | `pmemd.cuda` (GPU) | **None** | 20000 steps SD+CG | — | Final minimisation |
+
+### 9.3 Input File Descriptions
+
+All Amber input control files live in `pmemd/in/` within the project directory.
+Each file is based on a template in `templates/MD/pmemd/in/`.
+
+| File | Step | Key parameters to adjust for a new system |
+|------|------|-------------------------------------------|
+| `step1.in` | 1 | `:N_MASK` (solute residue range), `restraint_wt` |
+| `step2.in` | 2 | `:N_MASK`, `restraint_wt`, `nstlim` (heating length), `dt` |
+| `step3.in` | 3 | `:N_MASK`, `restraint_wt` (medium) |
+| `step4.in` | 4 | `:N_MASK`, `restraint_wt` (weak) |
+| `step5.in` | 5 | (none — unrestrained) |
+| `step6.in` | 6 | `:N_MASK`, `restraint_wt` (mild), first NPT block |
+| `step7.in` | 7 | `:N_MASK`, `restraint_wt` (reduced) |
+| `step8.in` | 8 | `:N_DNA_BB` (backbone atom mask), `N_BB_ATOMS` list |
+| `step9.in` | 9 | (none — unrestrained, 2 fs dt transition) |
+| `step10.in` | 10 | `nstlim` (production length), `cut`, output frequencies |
+| `final_min.in` | 11 | `maxcyc`, `ncyc` (minimisation depth) |
+
+### 9.4 Output Files (per task)
+
+| File(s) | Contents |
+|---------|----------|
+| `prep/step{N}_{TASK}_J{JOBID}.out` | Amber log file for step N |
+| `prep/step{N}_{TASK}_J{JOBID}.ncrst` | Amber restart file (binary NetCDF) |
+| `prep/step{N}_{TASK}_J{JOBID}.nc` | Trajectory file (NetCDF) — written for steps 2, 6-10 |
+| `prep/step{N}_{TASK}_J{JOBID}.info` | Amber mdinfo progress log |
+| `prep/pdb/step{N}_{TASK}_J{JOBID}.pdb` | PDB snapshot (converted with ambpdb) |
+| `final_min/final_min_{TASK}_J{JOBID}.out` | Amber log for final minimisation |
+| `final_min/final_min_{TASK}_J{JOBID}.ncrst` | Minimised restart file |
+| `final_min/final_min_{TASK}_J{JOBID}_cpptrajed.ncrst` | Autoimaged, aligned restart (cpptraj) |
+| `final_min/final_min_{TASK}_J{JOBID}_stripped.ncrst` | Autoimaged, aligned, solvent-stripped restart |
+| `final_min/final_min_{TASK}_J{JOBID}_stripped.prmtop` | Solvent-stripped topology |
+| `final_min/pdb/final_min_{TASK}_J{JOBID}_cpptrajed.pdb` | PDB of full minimised structure |
+| `final_min/pdb/final_min_{TASK}_J{JOBID}_stripped.pdb` | PDB of solvent-stripped structure |
+| `run.info` | `SLURM_JOBID TASK_ID hostname` metadata |
+
+### 9.5 SLURM Configuration
+
+The `PrepAndMin.slurm` script uses **SLURM array jobs** so that each
+complex (`cplx_N`) runs as an independent task:
+
+```bash
+#SBATCH --array=1,2,3,5,7       # task IDs — one per complex
+```
+
+**Restart protection:** The loop checks for existing `.ncrst` files before
+each step.  If a `.ncrst` is found, that step is skipped.  This allows
+safe resubmission after a time-limit or transient failure.
+
+**Temporary storage:** All MD steps run on compute-node local storage
+(`$TMPDIR`), avoiding network filesystem latency.  Output is copied to
+scratch only after successful completion.
+
+**Scratch directory layout (on cluster):**
+
+```
+scratch/boltz/projects/<PROJECT>/MD/
+  pmemd/
+    in/                  — copied to each job (step*.in, final_min.in)
+    out/
+      <EXPERIMENT>/
+        J<jobid>/
+          task_<N>/
+            prep/
+            final_min/
+            run.info
+  leap/
+    <EXPERIMENT>/
+      cplx_<N>.prmtop    — sourced by the job
+      cplx_<N>.rst7      — sourced by the job
+```
+
+### 9.6 Customisation Guide
+
+To adapt this pipeline for a **new system** (different DNA sequence,
+different ligand, protein, RNA, etc.):
+
+1. **Copy the template files** (see §2.2).
+2. **Update residue numbering** in every `.in` file:
+   - `:N_MASK` — total solute range (e.g. `:1-47` for 46-nt DNA + 1 ligand)
+   - `:N_DNA_BB` — nucleic-acid backbone range (e.g. `:1-46` for 46-nt DNA)
+   - `:N_LIG` — ligand residue number (e.g. `47`)
+3. **Adjust backbone atom names** in `step8.in` if your polymer is RNA or
+   protein (different atom naming from DNA).
+4. **Set the production length** in `step10.in`:
+   ```amber
+   nstlim = DESIRED_NS * 1000 / DT
+   ```
+   Example: 50000000 steps = 100 ns at 0.002 ps.
+5. **Choose task IDs** in the Slurm `#SBATCH --array` directive to match
+   the `cplx_N` files generated by `leap.sh`.
+6. **Update cpptraj masks** in the Slurm script:
+   - `align :N_DNA` — residues for structural alignment
+   - `strip :WAT` — solvent residue name (or `:WAT,Na+,Cl-` to strip ions)
+7. **Submit**:
+   ```bash
+   sbatch MD/slurm/PrepAndMin.slurm
+   ```
+
+### 9.7 Troubleshooting
+
+| Issue | Likely Cause | Solution |
+|-------|-------------|----------|
+| `pmemd: command not found` | AmberTools not loaded | `module load amber` |
+| `pmemd.cuda: command not found` | Amber GPU module not available | Use `module load amber/22` or check cluster docs |
+| Step fails with `DISANG` error | `nmropt=1` but no restraint file | Set `nmropt=0` in all `.in` files (restraints off) |
+| Step fails with `IMAGE NOT PRESENT` | Bad initial coordinates | Check leap-generated `.rst7` with `ambpdb` |
+| `cpptraj: command not found` | AmberTools cpptraj not in PATH | `module load amber/22` |
+| `ambpdb: command not found` | AmberTools not loaded | Use `cpptraj` instead if ambpdb unavailable |
+| `segmentation fault` in pmemd.cuda | GPU out of memory | Reduce system size, increase `ntasks-per-node` or use `pmemd` (CPU) |
+| Job hits time limit mid-pipeline | `#SBATCH -t` too short | Increase wall time; resubmit — restart protection will skip completed steps |
+| Restart protection skips wrong steps | Filename mismatch | Check `SUFFIX` construction; `_${TASK}_J${JOBID}` must match existing `.ncrst` files |
+
+---
+
+## 10. File Reference
 
 ### Shared utilities (imported, do not edit for each project)
 
@@ -943,17 +1153,22 @@ command directly to the console.
 | `templates/input_file_generator.py` | `project`, `molecule_type`, `SEQUENCES`, `LIGANDS`, `additional_pairs`, `custom_msa` |
 | `templates/output_file_processing.py` | `project`, `models`, `LGD_DICT`, `NAME_MAP`, `suffixes` |
 | `templates/process.R` | `project`, `ligand_number` |
-| `templates/orca_steps_wsl.sh` | ORCA paths, molecule name, charge, multiplicity, solvent |
-| `templates/multiwfn_steps_windows.ps1` | Multiwfn path, Molden directory, output directory |
-| `templates/multiwfn_steps_linux.sh` | Multiwfn path, Molden directory, output directory |
-| `templates/ligand_prep.sh` | `MOL`, `NC`, `S` (molecule name, net charge, verbosity) |
-| `templates/model_prep.py` | `seq`, `lgd`, `lgd_file`, model range; PyMOL modification block (EDIT THIS BLOCK) |
-| `templates/leap.sh` | Default `-p` prefix, `-l` ligand name, model range, ion counts |
-| `templates/ions.R` | `C_NaCl`, `C_MgCl2`, `Nw`, `Q` (ion concentrations, water count, system charge) |
+| **MD parameterisation templates** | |
+| `templates/MD/orca_steps_wsl.sh` | ORCA paths, molecule name, charge, multiplicity, solvent |
+| `templates/MD/multiwfn_steps_windows.ps1` | Multiwfn path, Molden directory, output directory |
+| `templates/MD/multiwfn_steps_linux.sh` | Multiwfn path, Molden directory, output directory |
+| `templates/MD/ligand_prep.sh` | `MOL`, `NC`, `S` (molecule name, net charge, verbosity) |
+| `templates/MD/model_prep.py` | `seq`, `lgd`, `lgd_file`, model range; PyMOL modification block (EDIT THIS BLOCK) |
+| `templates/MD/leap.sh` | Default `-p` prefix, `-l` ligand name, model range, ion counts |
+| `templates/MD/R/ions.R` | `C_NaCl`, `C_MgCl2`, `Nw`, `Q` (ion concentrations, water count, system charge) |
+| **MD preparation + minimisation templates** | |
+| `templates/MD/pmemd/in/step1.in` … `step10.in` | `:N_MASK` (solute residue range), `restraint_wt`, `nstlim`, backbone atom mask (step8), production length (step10) |
+| `templates/MD/pmemd/in/final_min.in` | `maxcyc`, `ncyc` (minimisation depth) |
+| `templates/MD/slurm/PrepAndMin.slurm` | Job name, partition, array tasks, `EXPERIMENT`, `SCRATCHDIR`, cpptraj masks (align, strip) |
 
 ---
 
-## 10. Appendix: Contact Constraints Format
+## 11. Appendix: Contact Constraints Format
 
 The `additional_pairs` parameter in `input_file_generator.py` accepts
 three formats, from simplest to most powerful.

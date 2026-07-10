@@ -1,0 +1,65 @@
+!! =============================================================================
+!! STEP 6 — Initial NPT Equilibration with Mild Restraints
+!! =============================================================================
+!!
+!! Purpose:         First NPT (constant pressure) equilibration with mild
+!!                  positional restraints.  Switches from CPU to GPU engine.
+!!                  Pressure coupling is applied for the first time here.
+!! Engine:          pmemd.cuda (GPU)
+!! Restraints:      Heavy atoms of the entire solute (mild)
+!! Simulation type: NPT dynamics, 5 ps @ 1 fs = 5000 steps
+!!
+!! !! ADJUST FOR YOUR SYSTEM:
+!!   :N_MASK              — Solute residue range            [currently :1-47]
+!!   restraint_wt         — Restraint force constant        [currently 1.0]
+!!   nstlim               — Simulation length               [5000 steps]
+!!   dt                   — Timestep                        [0.001 ps]
+!!   ntb / ntp            — Pressure coupling (1=isotropic) [ntb=2, ntp=1]
+!!   pres0                — Reference pressure              [1.0 atm]
+!!
+!! Reference: CSS1_HCY_constrained (46-nt DNA aptamer + HCY ligand, res 1-47)
+!! =============================================================================
+
+Initial NPT with mild positional restraints
+ &cntrl
+  imin=0,                   ! MD simulation
+  irest=0,                  ! Start fresh
+  ntx=1,                    ! Read coordinates only
+  ig=-1,                    ! Random seed
+
+  !! ADJUST: simulation time
+  nstlim=5000,              ! Number of steps (5 ps @ 1 fs)
+  dt=0.001,                 ! Timestep (ps)
+
+  !! ADJUST: temperature
+  temp0=300.0,              ! Target temperature (K)
+  tempi=300.0,              ! Initial temperature (K)
+  ntt=3, gamma_ln=5.0,      ! Langevin thermostat
+
+  !! ADJUST: pressure coupling
+  ntb=2,                    ! Constant pressure (NPT)
+  ntp=1,                    ! Isotropic pressure coupling
+  pres0=1.0,                ! Reference pressure (atm)
+  barostat=2,               ! Monte Carlo barostat
+  mcbarint=100,             ! Barostat interval (steps)
+  taup=1.0,                 ! Pressure coupling time constant (ps)
+
+  iwrap=0,                  ! No coordinate wrapping
+  nscm=0,                   ! COM removal OFF
+
+  ntc=2, ntf=2,             ! SHAKE on H-bonded bonds
+
+  cut=8.0,                  ! Nonbonded cutoff (A)
+
+  ntpr=50,                  ! Energy print frequency
+  ntwx=500,                 ! Trajectory write frequency
+  ntwr=500,                 ! Restart write frequency
+  ntwv=-1,                  ! Do not write velocities
+
+  !! ADJUST: positional restraints on solute
+  ntr=1,                    ! Positional restraints ON
+  restraint_wt=1.0,         !! ADJUST: mild restraint (kcal/mol·A^2)
+  restraintmask=":1-47&!@H=",  !! ADJUST :N_MASK — heavy atoms of solute
+
+  nmropt=0                  ! NMR restraints OFF
+ /
