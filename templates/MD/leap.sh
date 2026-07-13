@@ -135,7 +135,7 @@ mkdir -p "$leap_subdir"
 # Create a single tleap input file
 cat > "${leap_subdir}/tleap.in" << EOF
 source leaprc.gaff2
-source leaprc.DNA.OL21
+source leaprc.DNA.OL24
 source leaprc.water.opc
 loadAmberPrep ff/${ligand}_resp.prepin
 loadAmberParams ff/${ligand}_resp.frcmod

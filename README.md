@@ -48,6 +48,7 @@ templates/                  Project-specific files with PLACEHOLDER_ values
   yaml/                       (placeholder — generated YAML files)
   msa/                        (placeholder — custom MSAs)
   MD/
+    generate_md_slurm.py        SLURM generator for PrepAndMin.slurm (§9.2)
     orca_steps_wsl.sh           ORCA single-point calculations (§8.4)
     multiwfn_steps_windows.ps1  RESP2 charge fitting, Windows (§8.5.1)
     multiwfn_steps_linux.sh     RESP2 charge fitting, Linux (§8.5.2)
@@ -59,7 +60,7 @@ templates/                  Project-specific files with PLACEHOLDER_ values
       step1.in — step10.in       Amber MD input control files (§9)
       final_min.in                Post-production minimisation (§9)
     slurm/
-      PrepAndMin.slurm            Amber MD prep + minimisation SLURM array (§9)
+      PrepAndMin.slurm            Amber MD prep + minimisation SLURM array template (§9.1)
 
 CSS/                        Real usage example (corticosteron-specific aptamers)
   input_file_generator.py     CSS-specific sequences: CSS1, CSS2, CSS3
@@ -165,12 +166,13 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
     - [8.12 Troubleshooting](#812-troubleshooting)
   - [9. Amber MD Preparation and Minimisation Pipeline](#9-amber-md-preparation-and-minimisation-pipeline)
     - [9.1 Pipeline Overview](#91-pipeline-overview)
-    - [9.2 The 11-Step Protocol](#92-the-11-step-protocol)
-    - [9.3 Input File Descriptions](#93-input-file-descriptions)
-    - [9.4 Output Files (per task)](#94-output-files-per-task)
-    - [9.5 SLURM Configuration](#95-slurm-configuration)
-    - [9.6 Customisation Guide](#96-customisation-guide)
-    - [9.7 Troubleshooting](#97-troubleshooting)
+    - [9.2 SLURM Script Generation](#92-slurm-script-generation)
+    - [9.3 The 11-Step Protocol](#93-the-11-step-protocol)
+    - [9.4 Input File Descriptions](#94-input-file-descriptions)
+    - [9.5 Output Files (per task)](#95-output-files-per-task)
+    - [9.6 SLURM Configuration](#96-slurm-configuration)
+    - [9.7 Customisation Guide](#97-customisation-guide)
+    - [9.8 Troubleshooting](#98-troubleshooting)
   - [10. File Reference](#10-file-reference)
     - [Shared utilities (imported, do not edit for each project)](#shared-utilities-imported-do-not-edit-for-each-project)
     - [Project-specific templates (copy and edit per project)](#project-specific-templates-copy-and-edit-per-project)
@@ -300,7 +302,7 @@ This copies all MD pipeline scripts into the correct subdirectories:
 
 | Copy command | Destination | Files |
 |-------------|------------|-------|
-| `cp -r templates/MD/*` | `my_project/MD/` | `leap.sh`, `ligand_prep.sh`, `model_prep.py`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `pmemd/in/*.in`, `slurm/PrepAndMin.slurm` |
+| `cp -r templates/MD/*` | `my_project/MD/` | `generate_md_slurm.py`, `leap.sh`, `ligand_prep.sh`, `model_prep.py`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `pmemd/in/*.in`, `slurm/PrepAndMin.slurm` |
 | `cp templates/MD/R/ions.R` | `my_project/MD/R/` | `ions.R` |
 
 ---
@@ -953,20 +955,27 @@ command directly to the console.
 
 In addition to the Boltz-2 prediction and ligand-parameterisation workflows,
 the repository provides a SLURM-based **Amber MD preparation and minimisation
-pipeline** (`PrepAndMin.slurm`).  This pipeline takes the solvated Amber
-systems from `leap.sh` (§8.8) and runs an 11-step protocol (minimisation +
-equilibration + 100 ns production + final minimisation).
+pipeline** (`PrepAndMin.slurm`).  A companion generator script
+(`generate_md_slurm.py`, §9.2) configures the SLURM file for each project.
+The pipeline takes the solvated Amber systems from `leap.sh` (§8.8) and runs
+an 11-step protocol (minimisation + equilibration + 100 ns production + final
+minimisation).
 
 ### 9.1 Pipeline Overview
 
 ```
+generate_md_slurm.py                               (§9.2)
+  │
+  │  Reads PrepAndMin.slurm template, replaces placeholders
+  │  Output:  slurm/<EXPERIMENT>_PrepAndMin.slurm
+  ▼
 leap.sh                                          (§8.8)
   │
   │  Deliverables:
   │    leap/<EXPERIMENT>/cplx_{N}.prmtop
   │    leap/<EXPERIMENT>/cplx_{N}.rst7
   ▼
-PrepAndMin.slurm  (SLURM array job)
+PrepAndMin.slurm  (SLURM array job — submit via sbatch)
   │
   │  11-step protocol on compute-node temporary storage
   │  Step  1:  pmemd     — solvent minimisation, restrained
@@ -999,7 +1008,48 @@ Output directories:
   └── run.info                                    — job metadata
 ```
 
-### 9.2 The 11-Step Protocol
+### 9.2 SLURM Script Generation
+
+**Script:** `templates/MD/generate_md_slurm.py` → copy to project (`cp -r templates/MD/*`)
+and run from the `MD/` directory.
+
+Reads the `slurm/PrepAndMin.slurm` template, replaces `__PLACEHOLDER__` markers with
+your project parameters, and writes a configured `.slurm` file.
+
+**Usage:**
+
+```bash
+cd my_project/MD
+python generate_md_slurm.py \
+    --experiment CSS1_HCY_constrained \
+    --array 1,2,3,5,7 \
+    --scratchdir ${SLURM_SUBMIT_DIR}/scratch/boltz/projects/CSS/MD
+```
+
+**Output:**  `slurm/<experiment>_PrepAndMin.slurm` (e.g. `slurm/CSS1_HCY_constrained_PrepAndMin.slurm`)
+
+The output filename includes the experiment name so multiple projects can
+coexist in the same `slurm/` directory without ambiguity.
+
+**Arguments:**
+
+| Arg | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `--experiment` | yes | — | Experiment name; sets `-J`, `EXPERIMENT=`, and output filename |
+| `--array` | no | `0-4` | SLURM array task IDs (e.g. `0-4`, `1,2,3,5,7`) |
+| `--scratchdir` | yes | — | Path to scratch directory containing `pmemd/` and `leap/` |
+| `--gpu` | no | `gpu-h100,gpu-l40` | GPU partition(s) for `#SBATCH -p` |
+| `--residues` | no | `1-46` | Residue mask for cpptraj `align` (e.g. `1-46`) |
+| `--solvent` | no | `WAT` | Solvent residue name for cpptraj `strip` (e.g. `WAT`) |
+
+After generation, transfer the output `.slurm` file to the cluster together
+with the `pmemd/in/` input files, then submit:
+
+```bash
+sbatch slurm/CSS1_HCY_constrained_PrepAndMin.slurm
+```
+
+### 9.3 The 11-Step Protocol
 
 | Step | Engine | Restraints | Length | dt | Purpose |
 |------|--------|-----------|--------|----|---------|
@@ -1015,7 +1065,7 @@ Output directories:
 | 10 | `pmemd.cuda` (GPU) | **None** | 50000000 steps | 2 fs | **100 ns production** |
 | 11 | `pmemd.cuda` (GPU) | **None** | 20000 steps SD+CG | — | Final minimisation |
 
-### 9.3 Input File Descriptions
+### 9.4 Input File Descriptions
 
 All Amber input control files live in `pmemd/in/` within the project directory.
 Each file is based on a template in `templates/MD/pmemd/in/`.
@@ -1034,7 +1084,7 @@ Each file is based on a template in `templates/MD/pmemd/in/`.
 | `step10.in` | 10 | `nstlim` (production length), `cut`, output frequencies |
 | `final_min.in` | 11 | `maxcyc`, `ncyc` (minimisation depth) |
 
-### 9.4 Output Files (per task)
+### 9.5 Output Files (per task)
 
 | File(s) | Contents |
 |---------|----------|
@@ -1052,14 +1102,18 @@ Each file is based on a template in `templates/MD/pmemd/in/`.
 | `final_min/pdb/final_min_{TASK}_J{JOBID}_stripped.pdb` | PDB of solvent-stripped structure |
 | `run.info` | `SLURM_JOBID TASK_ID hostname` metadata |
 
-### 9.5 SLURM Configuration
+### 9.6 SLURM Configuration
 
-The `PrepAndMin.slurm` script uses **SLURM array jobs** so that each
-complex (`cplx_N`) runs as an independent task:
+The generated `.slurm` script uses **SLURM array jobs** so that each
+complex (`cplx_N`) runs as an independent task.  The `--array` argument
+to `generate_md_slurm.py` (§9.2) sets `#SBATCH --array` to match the
+`cplx_N` files produced by `leap.sh`:
 
 ```bash
-#SBATCH --array=1,2,3,5,7       # task IDs — one per complex
+#SBATCH --array=0-4       # task IDs — one per complex
 ```
+
+Similarly, `--gpu` sets `#SBATCH -p` and `--experiment` sets `#SBATCH -J`.
 
 **Restart protection:** The loop checks for existing `.ncrst` files before
 each step.  If a `.ncrst` is found, that step is skipped.  This allows
@@ -1088,7 +1142,7 @@ scratch/boltz/projects/<PROJECT>/MD/
       cplx_<N>.rst7      — sourced by the job
 ```
 
-### 9.6 Customisation Guide
+### 9.7 Customisation Guide
 
 To adapt this pipeline for a **new system** (different DNA sequence,
 different ligand, protein, RNA, etc.):
@@ -1105,17 +1159,24 @@ different ligand, protein, RNA, etc.):
    nstlim = DESIRED_NS * 1000 / DT
    ```
    Example: 50000000 steps = 100 ns at 0.002 ps.
-5. **Choose task IDs** in the Slurm `#SBATCH --array` directive to match
-   the `cplx_N` files generated by `leap.sh`.
-6. **Update cpptraj masks** in the Slurm script:
-   - `align :N_DNA` — residues for structural alignment
-   - `strip :WAT` — solvent residue name (or `:WAT,Na+,Cl-` to strip ions)
+5. **Generate the SLURM script** with `generate_md_slurm.py`:
+   ```bash
+   python generate_md_slurm.py \
+       --experiment <EXPERIMENT> \
+       --array <TASK_IDS> \
+       --scratchdir <SCRATCH_DIR> \
+       --residues <N_DNA> \
+       --solvent <SOLVENT>
+   ```
+   See §9.2 for full argument details.
+6. **Transfer** the generated `.slurm` file, `pmemd/in/` input files, and
+   `leap/<EXPERIMENT>/` outputs to the cluster.
 7. **Submit**:
    ```bash
-   sbatch MD/slurm/PrepAndMin.slurm
+   sbatch slurm/<EXPERIMENT>_PrepAndMin.slurm
    ```
 
-### 9.7 Troubleshooting
+### 9.8 Troubleshooting
 
 | Issue | Likely Cause | Solution |
 |-------|-------------|----------|
@@ -1164,7 +1225,8 @@ different ligand, protein, RNA, etc.):
 | **MD preparation + minimisation templates** | |
 | `templates/MD/pmemd/in/step1.in` … `step10.in` | `:N_MASK` (solute residue range), `restraint_wt`, `nstlim`, backbone atom mask (step8), production length (step10) |
 | `templates/MD/pmemd/in/final_min.in` | `maxcyc`, `ncyc` (minimisation depth) |
-| `templates/MD/slurm/PrepAndMin.slurm` | Job name, partition, array tasks, `EXPERIMENT`, `SCRATCHDIR`, cpptraj masks (align, strip) |
+| `templates/MD/generate_md_slurm.py` | `experiment`, `array`, `scratchdir`, `gpu`, `residues`, `solvent` — generates a configured `.slurm` from `PrepAndMin.slurm` (§9.2) |
+| `templates/MD/slurm/PrepAndMin.slurm` | Template with `__PLACEHOLDER__` markers; used by `generate_md_slurm.py` (§9.1) |
 
 ---
 

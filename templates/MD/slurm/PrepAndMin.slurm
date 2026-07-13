@@ -23,13 +23,13 @@
 #############################
 # SLURM OPTIONS
 #############################
-#SBATCH -J YOUR_JOB_NAME              !! ADJUST: job name
+#SBATCH -J __JOB_NAME__              !! ADJUST: job name
 #SBATCH -t 23:59:59
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres gpu:1
-#SBATCH -p gpu-h100,gpu-l40          !! ADJUST: cluster partition(s)
-#SBATCH --array=1,2,3,5,7            !! ADJUST: array task IDs matching
+#SBATCH -p __GPU_PARTITION__          !! ADJUST: cluster partition(s)
+#SBATCH --array=__ARRAY__            !! ADJUST: array task IDs matching
                                      !!   your leap output files (cplx_N)
 #############################
 
@@ -51,14 +51,14 @@ TASK_ID=${SLURM_ARRAY_TASK_ID}
 SUFFIX=_${TASK_ID}_J${SLURM_ARRAY_JOB_ID}
 
 !! ADJUST: experiment name (must match leap/ directory name)
-EXPERIMENT="CSS1_HCY_constrained"
+EXPERIMENT="__EXPERIMENT__"
 
 ###############################
 # DIRECTORIES (SAFE ISOLATION)
 ###############################
 
 !! ADJUST: path to scratch directory containing pmemd/ and leap/
-SCRATCHDIR=${SLURM_SUBMIT_DIR}/scratch/boltz/projects/CSS/MD
+SCRATCHDIR=__SCRATCHDIR__
 
 RUNROOT="${SCRATCHDIR}/pmemd/out/${EXPERIMENT}/J${SLURM_ARRAY_JOB_ID}/task_${TASK_ID}"
 PREPOUTDIR="${RUNROOT}/prep"
@@ -211,9 +211,9 @@ parm start.prmtop
 trajin final_min${SUFFIX}.ncrst
 autoimage
 !! ADJUST: solute residues for alignment
-align :1-46
+align :__RESIDUES__
 !! ADJUST: solvent residue name to strip
-strip :WAT nobox parmout final_min${SUFFIX}_stripped.prmtop
+strip :__SOLVENT__ nobox parmout final_min${SUFFIX}_stripped.prmtop
 trajout final_min${SUFFIX}_stripped.ncrst netcdf nobox
 go
 EOF
@@ -223,7 +223,7 @@ parm start.prmtop
 trajin final_min${SUFFIX}.ncrst
 autoimage
 !! ADJUST: solute residues for alignment
-align :1-46
+align :__RESIDUES__
 trajout final_min${SUFFIX}_cpptrajed.ncrst netcdf nobox
 go
 EOF
