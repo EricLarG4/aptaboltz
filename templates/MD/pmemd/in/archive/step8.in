@@ -1,0 +1,74 @@
+!! =============================================================================
+!! STEP 8 — NPT Equilibration with Backbone-Only Restraints
+!! =============================================================================
+!!
+!! Purpose:         Continue NPT equilibration with restraints narrowed to
+!!                  the DNA/RNA backbone atoms only (plus ligand heavy atoms).
+!!                  This transitions from full-solute to selective restraints.
+!! Engine:          pmemd.cuda (GPU)
+!! Restraints:      Backbone atoms of DNA/RNA + heavy atoms of ligand
+!! Simulation type: NPT dynamics, 10 ps @ 1 fs = 10000 steps
+!!
+!! !! ADJUST FOR YOUR SYSTEM:
+!!   :N_DNA_BB           — DNA/RNA backbone atom selection  [currently :1-46]
+!!   :N_LIG              — Ligand residue number            [currently 47]
+!!   N_BB_ATOMS          — Backbone atom names list
+!!   restraint_wt         — Restraint force constant        [currently 0.5]
+!!   nstlim               — Simulation length               [10000 steps]
+!!   dt                   — Timestep                        [0.001 ps]
+!!
+!! DNA backbone atoms (for reference):
+!!   P, OP1, OP2, O5', C5', C4', C3', O3'
+!!   Remove O4' to exclude the sugar ring; remove C4' and C3' for minimal
+!!   phosphate-only backbone restraint.
+!!
+!! Reference: CSS1_HCY_constrained (46-nt DNA aptamer + HCY ligand, res 1-47)
+!! =============================================================================
+
+Backbone-only restraints
+ &cntrl
+  imin=0,                   ! MD simulation
+  irest=1,                  ! Restart from previous trajectory
+  ntx=5,                    ! Read coordinates AND velocities
+  ig=-1,                    ! Random seed
+
+  !! ADJUST: simulation time
+  nstlim=10000,             ! Number of steps (10 ps @ 1 fs)
+  dt=0.001,                 ! Timestep (ps)
+
+  !! ADJUST: temperature
+  temp0=300.0,              ! Target temperature (K)
+  tempi=300.0,              ! Initial temperature (K)
+  ntt=3, gamma_ln=5.0,      ! Langevin thermostat
+
+  !! ADJUST: pressure coupling
+  ntb=2,                    ! Constant pressure (NPT)
+  ntp=1,                    ! Isotropic pressure coupling
+  pres0=1.0,                ! Reference pressure (atm)
+  barostat=2,               ! Monte Carlo barostat
+  mcbarint=100,             ! Barostat interval (steps)
+  taup=1.0,                 ! Pressure coupling time constant (ps)
+
+  iwrap=0,                  ! No coordinate wrapping
+  nscm=0,                   ! COM removal OFF
+
+  ntc=2, ntf=2,             ! SHAKE on H-bonded bonds
+
+  cut=8.0,                  ! Nonbonded cutoff (A)
+
+  ntpr=50,                  ! Energy print frequency
+  ntwx=500,                 ! Trajectory write frequency
+  ntwr=500,                 ! Restart write frequency
+  ntwv=-1,                  ! Do not write velocities
+
+  !! ADJUST: backbone-only restraint mask
+  ntr=1,                    ! Positional restraints ON
+  restraint_wt=0.5,         !! ADJUST: restraint force constant (kcal/mol·A^2)
+  !! ADJUST: atom selection — DNA/RNA backbone atoms + ligand heavy atoms
+  !! Format: DNA backbone: (:N_DNA_BB@ATOM1,ATOM2,...)
+  !!         Ligand:        (:N_LIG&!@H=)
+  !! Example for 46-nt DNA + residue-47 ligand:
+  restraintmask="(:1-46@P,OP1,OP2,O5',C5',C4',C3',O3')|(:47&!@H=)",
+
+  nmropt=0                  ! NMR restraints OFF
+ /

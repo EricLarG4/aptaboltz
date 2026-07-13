@@ -1,48 +1,31 @@
-!! =============================================================================
-!! FINAL MIN — Post-Production Energy Minimisation
-!! =============================================================================
-!!
-!! Purpose:         Final energy minimisation of the last production frame.
-!!                  Uses steepest-descent then conjugate-gradient for a
-!!                  thorough minimisation (20000 steps).  No restraints.
-!! Engine:          pmemd.cuda (GPU)
-!! Restraints:      NONE (ntr=0)
-!! Simulation type: minimisation (imin=1), 20000 steps
-!!
-!! !! ADJUST FOR YOUR SYSTEM:
-!!   maxcyc               — Total minimisation steps        [20000]
-!!   ncyc                 — SD-to-CG switch point           [4000]
-!!                          Lower = more CG (faster convergence)
-!!                          Higher = more SD (better for strained systems)
-!!   ntmin                — Minimisation algorithm          [1]
-!!                          1 = SD then CG, 2 = SD only
-!!
-!! =============================================================================
-
-Final energy minimisation
+Minimize solute with medium restraints
  &cntrl
-  imin=1,                   ! Energy minimisation
-  ntx=1,                    ! Read coordinates only
-  irest=0,                  ! Fresh minimisation
+  imin=1,                   ! Energy minimization flag (1 = minimization)
+  ntx=1,					! Only coordinates read (no velocities; default value)
+  irest=0,					! Run a new simulation (no restart, velocities ignored; default value)
+  ntmin=1,			        ! Steepest descent method is used until ncyc is reached, then conjugate gradient (default)
 
-  !! ADJUST: minimisation algorithm
-  ntmin=1,                  ! 1 = SD then conjugate gradient
-                             ! 2 = SD only
+  ! Minimization steps
+  maxcyc=20000,             ! Total number of minimization steps (20,000 steps)
+  ncyc=4000,                ! Method switched from steepest descent to conjugate gradient after 4000 cycles (if ntmin=1)
 
-  !! ADJUST: minimisation depth
-  maxcyc=20000,             !! ADJUST: total steps
-  ncyc=4000,                !! ADJUST: SD steps before switching to CG
+  ! Nonbonded interactions
+  cut=8.0,                 ! Nonbonded cutoff distance in A (8 A)
 
-  cut=8.0,                  ! Nonbonded cutoff (A)
-  ntb=1,                    ! Constant volume
+  ! Boundary conditions
+  ntb=1,                    ! Constant volume (no pressure coupling; Constant pressure is not used in minimization)
+  
+  ! Constraints
+  ntc=1, ntf=1,             ! no SHAKE (complete interaction is calculated; default value)
+  
+  ! Output control
+  ntpr=50,                  ! Print energy and other information every 50 steps
+  ntwx=500,                 ! Write coordinates (trajectory) every 500 steps
+  ntwr=500,                 ! Write restart files every 1000 steps
 
-  ntc=1, ntf=1,             ! No SHAKE (minimisation)
+  ! Restraints
+  ntr=0,                    ! No positional restraints are applied (default value)
 
-  ntpr=50,                  ! Energy print frequency
-  ntwx=500,                 ! Trajectory write frequency
-  ntwr=500,                 ! Restart write frequency
-
-  ntr=0,                    ! NO positional restraints
-
-  nmropt=0                  ! NMR restraints OFF
+  ! NMR restraints
+  nmropt=0                  ! Disable NMR restraints
  /

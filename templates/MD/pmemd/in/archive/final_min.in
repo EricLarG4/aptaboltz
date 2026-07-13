@@ -1,0 +1,48 @@
+!! =============================================================================
+!! FINAL MIN — Post-Production Energy Minimisation
+!! =============================================================================
+!!
+!! Purpose:         Final energy minimisation of the last production frame.
+!!                  Uses steepest-descent then conjugate-gradient for a
+!!                  thorough minimisation (20000 steps).  No restraints.
+!! Engine:          pmemd.cuda (GPU)
+!! Restraints:      NONE (ntr=0)
+!! Simulation type: minimisation (imin=1), 20000 steps
+!!
+!! !! ADJUST FOR YOUR SYSTEM:
+!!   maxcyc               — Total minimisation steps        [20000]
+!!   ncyc                 — SD-to-CG switch point           [4000]
+!!                          Lower = more CG (faster convergence)
+!!                          Higher = more SD (better for strained systems)
+!!   ntmin                — Minimisation algorithm          [1]
+!!                          1 = SD then CG, 2 = SD only
+!!
+!! =============================================================================
+
+Final energy minimisation
+ &cntrl
+  imin=1,                   ! Energy minimisation
+  ntx=1,                    ! Read coordinates only
+  irest=0,                  ! Fresh minimisation
+
+  !! ADJUST: minimisation algorithm
+  ntmin=1,                  ! 1 = SD then conjugate gradient
+                             ! 2 = SD only
+
+  !! ADJUST: minimisation depth
+  maxcyc=20000,             !! ADJUST: total steps
+  ncyc=4000,                !! ADJUST: SD steps before switching to CG
+
+  cut=8.0,                  ! Nonbonded cutoff (A)
+  ntb=1,                    ! Constant volume
+
+  ntc=1, ntf=1,             ! No SHAKE (minimisation)
+
+  ntpr=50,                  ! Energy print frequency
+  ntwx=500,                 ! Trajectory write frequency
+  ntwr=500,                 ! Restart write frequency
+
+  ntr=0,                    ! NO positional restraints
+
+  nmropt=0                  ! NMR restraints OFF
+ /

@@ -48,18 +48,21 @@ templates/                  Project-specific files with PLACEHOLDER_ values
   yaml/                       (placeholder — generated YAML files)
   msa/                        (placeholder — custom MSAs)
   MD/
-    generate_md_slurm.py        SLURM generator for PrepAndMin.slurm (§9.2)
-    orca_steps_wsl.sh           ORCA single-point calculations (§8.4)
-    multiwfn_steps_windows.ps1  RESP2 charge fitting, Windows (§8.5.1)
-    multiwfn_steps_linux.sh     RESP2 charge fitting, Linux (§8.5.2)
-    ligand_prep.sh              AmberTools GAFF2 parameterisation (§8.6)
-    model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
-    leap.sh                     Amber tLEAP solvation + ionisation (§8.8)
-    R/ions.R                    Ion concentration calculator (§8.9)
-    pmemd/in/
-      step1.in — step10.in       Amber MD input control files (§9)
-      final_min.in                Post-production minimisation (§9)
-    slurm/
+    orca_steps_wsl.sh           ORCA single-point calculations (�8.4)
+    multiwfn_steps_windows.ps1  RESP2 charge fitting, Windows (�8.5.1)
+    multiwfn_steps_linux.sh     RESP2 charge fitting, Linux (�8.5.2)
+    ligand_prep.sh              AmberTools GAFF2 parameterisation (�8.6)
+    leap.sh                     Amber tLEAP solvation + ionisation (�8.8)
+      python/
+        generate_md_slurm.py        SLURM generator for PrepAndMin.slurm (§9.2)
+        generate_pmemd_inputs.py    Amber pmemd input file generator (§9.5)
+        model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
+      R/ions.R                    Ion concentration calculator (§8.9)
+      pmemd/in/
+        archive/                    Previous versions of generated .in files
+        step1.in — step10.in       Amber MD input control files (§9)
+        final_min.in                Post-production minimisation (§9)
+      slurm/
       PrepAndMin.slurm            Amber MD prep + minimisation SLURM array template (§9.1)
 
 CSS/                        Real usage example (corticosteron-specific aptamers)
@@ -169,10 +172,11 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
     - [9.2 SLURM Script Generation](#92-slurm-script-generation)
     - [9.3 The 11-Step Protocol](#93-the-11-step-protocol)
     - [9.4 Input File Descriptions](#94-input-file-descriptions)
-    - [9.5 Output Files (per task)](#95-output-files-per-task)
-    - [9.6 SLURM Configuration](#96-slurm-configuration)
-    - [9.7 Customisation Guide](#97-customisation-guide)
-    - [9.8 Troubleshooting](#98-troubleshooting)
+    - [9.5 Input File Generation](#95-input-file-generation)
+    - [9.6 Output Files (per task)](#96-output-files-per-task)
+    - [9.7 SLURM Configuration](#97-slurm-configuration)
+    - [9.8 Customisation Guide](#98-customisation-guide)
+    - [9.9 Troubleshooting](#99-troubleshooting)
   - [10. File Reference](#10-file-reference)
     - [Shared utilities (imported, do not edit for each project)](#shared-utilities-imported-do-not-edit-for-each-project)
     - [Project-specific templates (copy and edit per project)](#project-specific-templates-copy-and-edit-per-project)
@@ -302,7 +306,7 @@ This copies all MD pipeline scripts into the correct subdirectories:
 
 | Copy command | Destination | Files |
 |-------------|------------|-------|
-| `cp -r templates/MD/*` | `my_project/MD/` | `generate_md_slurm.py`, `leap.sh`, `ligand_prep.sh`, `model_prep.py`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `pmemd/in/*.in`, `slurm/PrepAndMin.slurm` |
+| `cp -r templates/MD/*` | `my_project/MD/` | `leap.sh`, `ligand_prep.sh`, `python/generate_pmemd_inputs.py`, `python/generate_md_slurm.py`, `python/model_prep.py`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `pmemd/in/archive/`, `slurm/PrepAndMin.slurm` |
 | `cp templates/MD/R/ions.R` | `my_project/MD/R/` | `ions.R` |
 
 ---
@@ -806,7 +810,7 @@ If `QM/<MOL>.mol2` is not found, the script automatically looks for
 
 ### 8.7 Step 4 — Model Preparation for MD
 
-**Script:** `templates/model_prep.py` → copy to project and edit.
+**Script:** `templates/MD/python/model_prep.py` → copy to project and edit.
 
 Converts Boltz-2 prediction CIF files into PDB models suitable for
 Amber tLEAP.  This involves loading each prediction into PyMOL,
@@ -827,7 +831,7 @@ before running.
 
 **Usage (command line):**
 ```bash
-python model_prep.py --seq <PREFIX> --lgd <LIGAND> --lgd-file <LGD_FILE> [options]
+python python/model_prep.py --seq <PREFIX> --lgd <LIGAND> --lgd-file <LGD_FILE> [options]
 ```
 
 Auto-detects the latest Boltz-2 job directory if `--job` is omitted.
@@ -955,8 +959,10 @@ command directly to the console.
 
 In addition to the Boltz-2 prediction and ligand-parameterisation workflows,
 the repository provides a SLURM-based **Amber MD preparation and minimisation
-pipeline** (`PrepAndMin.slurm`).  A companion generator script
-(`generate_md_slurm.py`, §9.2) configures the SLURM file for each project.
+pipeline** (`PrepAndMin.slurm`).  Two companion generator scripts configure
+the pipeline for each project:
+`generate_pmemd_inputs.py` (§9.5) generates the Amber input control files,
+and `generate_md_slurm.py` (§9.2) generates the SLURM array job script.
 The pipeline takes the solvated Amber systems from `leap.sh` (§8.8) and runs
 an 11-step protocol (minimisation + equilibration + 100 ns production + final
 minimisation).
@@ -964,6 +970,12 @@ minimisation).
 ### 9.1 Pipeline Overview
 
 ```
+generate_pmemd_inputs.py                          (§9.5)
+  │
+  │  Generates all 11 pmemd/in/*.in files from
+  │  --macromol-type, --macromol-start/end, --ligand-idx, --production-ns
+  │  Output:  pmemd/in/step{1-10}.in, final_min.in
+  ▼
 generate_md_slurm.py                               (§9.2)
   │
   │  Reads PrepAndMin.slurm template, replaces placeholders
@@ -1010,7 +1022,7 @@ Output directories:
 
 ### 9.2 SLURM Script Generation
 
-**Script:** `templates/MD/generate_md_slurm.py` → copy to project (`cp -r templates/MD/*`)
+**Script:** `templates/MD/python/generate_md_slurm.py` → copy to project (`cp -r templates/MD/*`)
 and run from the `MD/` directory.
 
 Reads the `slurm/PrepAndMin.slurm` template, replaces `__PLACEHOLDER__` markers with
@@ -1020,10 +1032,10 @@ your project parameters, and writes a configured `.slurm` file.
 
 ```bash
 cd my_project/MD
-python generate_md_slurm.py \
+python python/generate_md_slurm.py \
     --experiment CSS1_HCY_constrained \
     --array 1,2,3,5,7 \
-    --scratchdir ${SLURM_SUBMIT_DIR}/scratch/boltz/projects/CSS/MD
+    --scratchdir scratch/boltz/projects/CSS/MD
 ```
 
 **Output:**  `slurm/<experiment>_PrepAndMin.slurm` (e.g. `slurm/CSS1_HCY_constrained_PrepAndMin.slurm`)
@@ -1037,10 +1049,11 @@ coexist in the same `slurm/` directory without ambiguity.
 |-----|----------|---------|-------------|
 | `--experiment` | yes | — | Experiment name; sets `-J`, `EXPERIMENT=`, and output filename |
 | `--array` | no | `0-4` | SLURM array task IDs (e.g. `0-4`, `1,2,3,5,7`) |
-| `--scratchdir` | yes | — | Path to scratch directory containing `pmemd/` and `leap/` |
+| `--scratchdir` | yes | — | Relative path under `$SLURM_SUBMIT_DIR` to the scratch directory containing `pmemd/` and `leap/` |
 | `--gpu` | no | `gpu-h100,gpu-l40` | GPU partition(s) for `#SBATCH -p` |
 | `--residues` | no | `1-46` | Residue mask for cpptraj `align` (e.g. `1-46`) |
 | `--solvent` | no | `WAT` | Solvent residue name for cpptraj `strip` (e.g. `WAT`) |
+| `--sequential` | no | `false` | If set, limits array concurrency to 1 (`%1` throttle). Tasks run one at a time |
 
 After generation, transfer the output `.slurm` file to the cluster together
 with the `pmemd/in/` input files, then submit:
@@ -1068,7 +1081,12 @@ sbatch slurm/CSS1_HCY_constrained_PrepAndMin.slurm
 ### 9.4 Input File Descriptions
 
 All Amber input control files live in `pmemd/in/` within the project directory.
-Each file is based on a template in `templates/MD/pmemd/in/`.
+
+> **These files are now generated by `generate_pmemd_inputs.py` (§9.5).** Run the
+> generator with your system parameters instead of editing manually.  The
+> generator handles residue numbering, backbone atom selection, and production
+> length.  If you still need to hand-edit, note that each file must end with a
+> blank line (`/`) to avoid Amber "End of line" errors.
 
 | File | Step | Key parameters to adjust for a new system |
 |------|------|-------------------------------------------|
@@ -1084,7 +1102,60 @@ Each file is based on a template in `templates/MD/pmemd/in/`.
 | `step10.in` | 10 | `nstlim` (production length), `cut`, output frequencies |
 | `final_min.in` | 11 | `maxcyc`, `ncyc` (minimisation depth) |
 
-### 9.5 Output Files (per task)
+### 9.5 Input File Generation
+
+**Script:** `templates/MD/python/generate_pmemd_inputs.py` → copy to project and run
+from the `MD/` directory.
+
+Generates all 11 `pmemd/in/*.in` files from your system parameters, removing
+the need for manual editing.  Existing files in `pmemd/in/` are automatically
+moved to `pmemd/in/archive/` before generation.
+
+**Usage:**
+
+```bash
+cd my_project/MD
+python python/generate_pmemd_inputs.py \
+    --macromol-type dna \
+    --macromol-start 1 \
+    --macromol-end 46 \
+    --ligand-idx 47 \
+    --production-ns 100
+```
+
+The output is written directly to `pmemd/in/` in the current working directory.
+
+**Arguments:**
+
+| Arg | Required | Default | Description |
+|-----|----------|---------|-------------|
+| `--macromol-type` | no | `dna` | `dna`, `rna`, or `protein` — determines backbone atom set |
+| `--macromol-start` | no | `1` | First residue of the macromolecule (used for backbone mask) |
+| `--macromol-end` | no | `46` | Last residue of the macromolecule |
+| `--ligand-idx` | no | — | Ligand residue index (omit if no ligand present) |
+| `--production-ns` | no | `100` | Production simulation length in nanoseconds |
+
+**What changes per file:**
+
+| File | Generated from parameters |
+|------|---------------------------|
+| `step1.in` – `step4.in` | Solute restraint mask (`:1-<MAX_END>&!@H=`) — `MAX_END` = max(`macromol_end`, `ligand_idx`) |
+| `step5.in` | Static (no restraints) |
+| `step6.in`, `step7.in` | Same solute mask as steps 1-4 |
+| `step8.in` | Backbone mask (`:START-END@ATOMS`) + optional ligand clause (`|(:LIG&!@H=)`). Backbone atoms depend on `macromol_type` |
+| `step9.in` | Static (no restraints, 2 fs) |
+| `step10.in` | `nstlim` computed as `production_ns * 1000 / 0.002` |
+| `final_min.in` | Static (no restraints, 20000 steps) |
+
+**Backbone atom sets by molecule type:**
+
+| `--macromol-type` | Amber atom selection |
+|-------------------|---------------------|
+| `dna` | `@P,OP1,OP2,O5',C5',C4',C3',O3'` |
+| `rna` | `@P,OP1,OP2,O5',C5',C4',C3',O3',O2'` |
+| `protein` | `@N,CA,C,O` |
+
+### 9.6 Output Files (per task)
 
 | File(s) | Contents |
 |---------|----------|
@@ -1102,7 +1173,7 @@ Each file is based on a template in `templates/MD/pmemd/in/`.
 | `final_min/pdb/final_min_{TASK}_J{JOBID}_stripped.pdb` | PDB of solvent-stripped structure |
 | `run.info` | `SLURM_JOBID TASK_ID hostname` metadata |
 
-### 9.6 SLURM Configuration
+### 9.7 SLURM Configuration
 
 The generated `.slurm` script uses **SLURM array jobs** so that each
 complex (`cplx_N`) runs as an independent task.  The `--array` argument
@@ -1114,6 +1185,8 @@ to `generate_md_slurm.py` (§9.2) sets `#SBATCH --array` to match the
 ```
 
 Similarly, `--gpu` sets `#SBATCH -p` and `--experiment` sets `#SBATCH -J`.
+Use `--sequential` to append `%1`, limiting the array to one concurrent task
+at a time (useful when GPU memory or node resources are shared).
 
 **Restart protection:** The loop checks for existing `.ncrst` files before
 each step.  If a `.ncrst` is found, that step is skipped.  This allows
@@ -1142,26 +1215,25 @@ scratch/boltz/projects/<PROJECT>/MD/
       cplx_<N>.rst7      — sourced by the job
 ```
 
-### 9.7 Customisation Guide
+### 9.8 Customisation Guide
 
 To adapt this pipeline for a **new system** (different DNA sequence,
 different ligand, protein, RNA, etc.):
 
 1. **Copy the template files** (see §2.2).
-2. **Update residue numbering** in every `.in` file:
-   - `:N_MASK` — total solute range (e.g. `:1-47` for 46-nt DNA + 1 ligand)
-   - `:N_DNA_BB` — nucleic-acid backbone range (e.g. `:1-46` for 46-nt DNA)
-   - `:N_LIG` — ligand residue number (e.g. `47`)
-3. **Adjust backbone atom names** in `step8.in` if your polymer is RNA or
-   protein (different atom naming from DNA).
-4. **Set the production length** in `step10.in`:
-   ```amber
-   nstlim = DESIRED_NS * 1000 / DT
-   ```
-   Example: 50000000 steps = 100 ns at 0.002 ps.
-5. **Generate the SLURM script** with `generate_md_slurm.py`:
+2. **Generate pmemd input files** with `generate_pmemd_inputs.py`:
    ```bash
-   python generate_md_slurm.py \
+   python python/generate_pmemd_inputs.py \
+       --macromol-type dna \
+       --macromol-start 1 \
+       --macromol-end 46 \
+       --ligand-idx 47 \
+       --production-ns 100
+   ```
+   See §9.5 for full argument details.
+3. **Generate the SLURM script** with `generate_md_slurm.py`:
+   ```bash
+   python python/generate_md_slurm.py \
        --experiment <EXPERIMENT> \
        --array <TASK_IDS> \
        --scratchdir <SCRATCH_DIR> \
@@ -1169,14 +1241,14 @@ different ligand, protein, RNA, etc.):
        --solvent <SOLVENT>
    ```
    See §9.2 for full argument details.
-6. **Transfer** the generated `.slurm` file, `pmemd/in/` input files, and
+4. **Transfer** the generated `.slurm` file, `pmemd/in/` input files, and
    `leap/<EXPERIMENT>/` outputs to the cluster.
-7. **Submit**:
+5. **Submit**:
    ```bash
    sbatch slurm/<EXPERIMENT>_PrepAndMin.slurm
    ```
 
-### 9.8 Troubleshooting
+### 9.9 Troubleshooting
 
 | Issue | Likely Cause | Solution |
 |-------|-------------|----------|
@@ -1219,13 +1291,14 @@ different ligand, protein, RNA, etc.):
 | `templates/MD/multiwfn_steps_windows.ps1` | Multiwfn path, Molden directory, output directory |
 | `templates/MD/multiwfn_steps_linux.sh` | Multiwfn path, Molden directory, output directory |
 | `templates/MD/ligand_prep.sh` | `MOL`, `NC`, `S` (molecule name, net charge, verbosity) |
-| `templates/MD/model_prep.py` | `seq`, `lgd`, `lgd_file`, model range; PyMOL modification block (EDIT THIS BLOCK) |
+| `templates/MD/python/model_prep.py` | `seq`, `lgd`, `lgd_file`, model range; PyMOL modification block (EDIT THIS BLOCK) |
 | `templates/MD/leap.sh` | Default `-p` prefix, `-l` ligand name, model range, ion counts |
 | `templates/MD/R/ions.R` | `C_NaCl`, `C_MgCl2`, `Nw`, `Q` (ion concentrations, water count, system charge) |
 | **MD preparation + minimisation templates** | |
-| `templates/MD/pmemd/in/step1.in` … `step10.in` | `:N_MASK` (solute residue range), `restraint_wt`, `nstlim`, backbone atom mask (step8), production length (step10) |
-| `templates/MD/pmemd/in/final_min.in` | `maxcyc`, `ncyc` (minimisation depth) |
-| `templates/MD/generate_md_slurm.py` | `experiment`, `array`, `scratchdir`, `gpu`, `residues`, `solvent` — generates a configured `.slurm` from `PrepAndMin.slurm` (§9.2) |
+| `templates/MD/python/generate_pmemd_inputs.py` | `macromol_type`, `macromol_start`, `macromol_end`, `ligand_idx`, `production_ns` — generates all 11 `pmemd/in/*.in` files from system parameters (§9.5) |
+| `templates/MD/pmemd/in/step1.in` … `step10.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5); no manual editing needed. The `archive/` directory holds previous versions |
+| `templates/MD/pmemd/in/final_min.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5) |
+| `templates/MD/python/generate_md_slurm.py` | `experiment`, `array`, `scratchdir`, `gpu`, `residues`, `solvent` — generates a configured `.slurm` from `PrepAndMin.slurm` (§9.2) |
 | `templates/MD/slurm/PrepAndMin.slurm` | Template with `__PLACEHOLDER__` markers; used by `generate_md_slurm.py` (§9.1) |
 
 ---
@@ -1296,3 +1369,4 @@ When `additional_pairs` resolves to a **non-empty** list for a given
 - Both an **unconstrained** and a **constrained** YAML file are
   generated for that entry, allowing direct comparison of the two
   conditions.
+

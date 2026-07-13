@@ -1,45 +1,31 @@
-!! =============================================================================
-!! STEP 1 — Solvent Minimisation with Heavy-Atom Positional Restraints
-!! =============================================================================
-!!
-!! Purpose:         Relax solvent and ions while keeping the solute
-!!                  (DNA/RNA/protein + ligand) fixed with positional
-!!                  restraints.  Only steepest-descent is used.
-!! Engine:          pmemd (CPU)
-!! Restraints:      Heavy atoms of the entire solute
-!! Simulation type: minimisation (imin=1)
-!!
-!! !! ADJUST FOR YOUR SYSTEM:
-!!   :N_MASK              — Solute residue range            [currently :1-47]
-!!                          e.g. 46-nt DNA = 1-46, plus ligand at 47
-!!   restraint_wt         — Positional restraint constant   [currently 5.0]
-!!   maxcyc / ncyc        — Minimisation length             [1000 / 10]
-!!
-!! Reference: CSS1_HCY_constrained (46-nt DNA aptamer + HCY ligand, res 1-47)
-!! =============================================================================
-
-Minimise solvent, heavy atom restraints on solute
+Minimize solvent, heavy atom restraints on solute
  &cntrl
-  imin=1,                   ! Energy minimisation
-  ntmin=2,                  ! Steepest descent only
+  imin=1,                   ! Energy minimization flag (1 = minimization)  
+  ntmin=2,				    ! Only steepest descent method is used
+  
+  ! Minimization steps
+  maxcyc=1000,              ! Total number of minimization steps (1000 steps)
+  ncyc=10,                  ! Number of steps for steepest descent if ntmin=1 (here, 1000 steps of steepest descent, no conjugate gradient)
+  
+  ! Nonbonded interactions
+  cut=8.0,                 ! Nonbonded cutoff distance in A (8 A)
 
-  !! ADJUST: minimisation steps
-  maxcyc=1000,              ! Total minimisation steps
-  ncyc=10,                  ! SD steps before CG (ignored if ntmin=2)
+  ! Boundary conditions
+  ntb=1,                    ! Constant volume (no pressure coupling)
+  
+  ! Constraints
+  ntc=1, ntf=1,             ! no SHAKE 
+  
+  ! Output control
+  ntpr=50,                  ! Print energy and other information every 50 steps
+  ntwx=500,                 ! Write coordinates (trajectory) every 500 steps
+  ntwr=500,                 ! Write restart files every 1000 steps
 
-  cut=8.0,                  ! Nonbonded cutoff (A)
-  ntb=1,                    ! Constant volume
+  ! Restraints
+  ntr=1,                    ! Positional restraints are applied
+  restraint_wt=5.0,         ! Restraint force constant in kcal/mol-A2 (5.0 kcal/mol-A2)
+  restraintmask='(:1-46 & !@H=)', ! Restraints applied to the heavy atoms of solute (DNA residues 1-46)
 
-  ntc=1, ntf=1,             ! No SHAKE (minimisation)
-
-  ntpr=50,                  ! Energy print frequency (steps)
-  ntwx=500,                 ! Trajectory write frequency (steps)
-  ntwr=500,                 ! Restart write frequency (steps)
-
-  !! ADJUST: positional restraints on solute
-  ntr=1,                    ! Positional restraints ON
-  restraint_wt=5.0,         ! Restraint force constant (kcal/mol·A^2)
-  restraintmask='(:1-47 & !@H=)',  !! ADJUST :N_MASK — heavy atoms of solute
-
-  nmropt=0                  ! NMR restraints OFF (DISANG not needed)
+  ! NMR restraints
+  nmropt=0                  ! Disable NMR restraints 
  /
