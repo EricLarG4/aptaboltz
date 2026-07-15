@@ -180,10 +180,49 @@ done
 echo "Pipeline finished"
 
 #############################
+# CPPTRAJ: STRIP STEP10
+#############################
+
+echo "Running cpptraj on step10 trajectory"
+
+mkdir -p "${PREPOUTDIR}/traj"
+
+cat <<EOF > step10_stripped${SUFFIX}.cpptraj
+parm start.prmtop
+trajin step10${SUFFIX}.nc
+autoimage
+align :__RESIDUES__
+strip :__SOLVENT__ nobox parmout ${PREPOUTDIR}/traj/step10${SUFFIX}_stripped.prmtop
+trajout ${PREPOUTDIR}/traj/step10${SUFFIX}_stripped.nc netcdf nobox
+go
+EOF
+
+cpptraj -i step10_stripped${SUFFIX}.cpptraj
+
+#############################
+# CPPTRAJ: 2D RMSD + RMSF STEP10
+#############################
+
+echo "Running 2D RMSD and RMSF on step10 stripped trajectory"
+
+cat <<EOF > step10_analysis${SUFFIX}.cpptraj
+parm ${PREPOUTDIR}/traj/step10${SUFFIX}_stripped.prmtop
+trajin ${PREPOUTDIR}/traj/step10${SUFFIX}_stripped.nc 1 last 5
+align :__RESIDUES__
+2drms !@%H&!:Na+,Cl-,MG rmsout ${PREPOUTDIR}/traj/step10_2drmsd${SUFFIX}.dat
+atomicfluct !@%H&!:Na+,Cl-,MG out ${PREPOUTDIR}/traj/step10_atomicfluct${SUFFIX}.dat byres
+go
+EOF
+
+cpptraj -i step10_analysis${SUFFIX}.cpptraj
+
+#############################
 # COPY BACK PREP RESULTS
 #############################
 
-cp step*.out step*.ncrst step*.nc step*.info -t "${PREPOUTDIR}/"
+cp step*.out step*.ncrst step*.nc step*.prmtop step*.info -t "${PREPOUTDIR}/"
+mkdir -p "${PREPOUTDIR}/cpptraj"
+cp step10*.cpptraj -t "${PREPOUTDIR}/cpptraj/"
 
 for i in {1..10}; do
     ambpdb -p start.prmtop -c step${i}${SUFFIX}.ncrst > "${PREPOUTDIR}/pdb/step${i}${SUFFIX}.pdb"
@@ -194,6 +233,8 @@ done
 #############################
 
 cp final_min*.out final_min*.ncrst final_min*.info -t "${MINOUTDIR}/"
+mkdir -p "${MINOUTDIR}/cpptraj"
+cp final_min*.cpptraj -t "${MINOUTDIR}/cpptraj/"
 
 #############################
 # CPPTRAJ

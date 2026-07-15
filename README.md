@@ -831,8 +831,15 @@ before running.
 
 **Usage (command line):**
 ```bash
+# Must be run from the MD/ directory, not from MD/python/
+cd my_project/MD
 python python/model_prep.py --seq <PREFIX> --lgd <LIGAND> --lgd-file <LGD_FILE> [options]
 ```
+
+> **Important:** Run this script from the `MD/` directory (e.g. `CSS/MD/`), not
+> from `MD/python/`.  The script uses relative paths (`../` for Boltz-2
+> prediction output and `ff/` for ligand parameter files) that resolve
+> correctly only from `MD/`.
 
 Auto-detects the latest Boltz-2 job directory if `--job` is omitted.
 
@@ -1009,14 +1016,25 @@ Output directories:
   │   ├── step1{N}.out, .ncrst, .nc, .info      — per-step files
   │   ├── step2{N}.out, .ncrst, .nc, .info
   │   ├── ...
-  │   └── pdb/
-  │       ├── step1{N}.pdb
-  │       └── ...
+  │   ├── pdb/
+  │   │   ├── step1{N}.pdb
+  │   │   └── ...
+  │   ├── traj/
+  │   │   ├── step10{N}_stripped.prmtop          — stripped topology
+  │   │   ├── step10{N}_stripped.nc              — stripped trajectory
+  │   │   ├── step10_2drmsd{N}.dat               — 2D RMSD matrix
+  │   │   └── step10_atomicfluct{N}.dat          — RMSF by residue
+  │   └── cpptraj/
+  │       ├── step10_stripped{N}.cpptraj
+  │       └── step10_analysis{N}.cpptraj
   ├── final_min/
   │   ├── final_min{N}.out, .ncrst, .info
-  │   └── pdb/
-  │       ├── final_min{N}_cpptrajed.pdb
-  │       └── final_min{N}_stripped.pdb
+  │   ├── pdb/
+  │   │   ├── final_min{N}_cpptrajed.pdb
+  │   │   └── final_min{N}_stripped.pdb
+  │   └── cpptraj/
+  │       ├── final_min_stripped{N}.cpptraj
+  │       └── final_min{N}.cpptraj
   └── run.info                                    — job metadata
 ```
 
