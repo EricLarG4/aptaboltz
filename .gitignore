@@ -41,7 +41,7 @@ confidence_table_files/
 # ============================================
 # Python
 # ============================================
-python/
+python_archive/
 __pycache__/
 *.egg-info/
 *.pyc

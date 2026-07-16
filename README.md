@@ -814,8 +814,8 @@ If `QM/<MOL>.mol2` is not found, the script automatically looks for
 
 Converts Boltz-2 prediction CIF files into PDB models suitable for
 Amber tLEAP.  This involves loading each prediction into PyMOL,
-performing system-specific modifications, aligning the reference ligand,
-and saving ready-for-MD PDB files.
+performing system-specific modifications, optionally aligning the
+reference ligand, and saving ready-for-MD PDB files.
 
 **System-specific modifications (DNA aptamer example):**
 - Removal of the 5' terminal phosphate
@@ -824,6 +824,10 @@ and saving ready-for-MD PDB files.
   predicted ligand
 - Reassigning chains (DNA → chain A, ligand → chain B)
 
+When `--lgd free` is used, all ligand-related operations (ligand
+alignment, reference PDB loading, chain B reassignment) are skipped.
+The script processes the DNA-only structure directly.
+
 **CAUTION:** The PyMOL operations in `prep_model()` are specific to
 **DNA aptamers** (5' phosphate removal, terminal hydroxyl capping).
 If your system is RNA or protein, edit the marked block in the script
@@ -831,9 +835,13 @@ before running.
 
 **Usage (command line):**
 ```bash
-# Must be run from the MD/ directory, not from MD/python/
+# With ligand
 cd my_project/MD
 python python/model_prep.py --seq <PREFIX> --lgd <LIGAND> --lgd-file <LGD_FILE> [options]
+
+# Without ligand (apo predictions)
+cd my_project/MD
+python python/model_prep.py --seq <PREFIX> --lgd free [options]
 ```
 
 > **Important:** Run this script from the `MD/` directory (e.g. `CSS/MD/`), not
@@ -846,14 +854,15 @@ Auto-detects the latest Boltz-2 job directory if `--job` is omitted.
 **Inputs required:**
 - Boltz-2 prediction output in `../<PREFIX>_<LIGAND><suffix>/<JOB>/`
 - `ff/<lgd_file>.pdb` — reference ligand PDB from `ligand_prep.sh`
+  (not required when `--lgd free`)
 
 **Outputs:**
 - `pdb_for_md/<PREFIX>_<LIGAND>_constrained/input_model_{i}.pdb`
 - `pdb_for_md/<PREFIX>_<LIGAND>_constrained/README.txt`
 
 **Edits required in template:** Sequence name (`--seq`), ligand name
-(`--lgd`), reference PDB name (`--lgd-file`), model range, and the
-PyMOL modification block (marked with `EDIT THIS BLOCK`).
+(`--lgd`), reference PDB name (`--lgd-file`, omit when using `--lgd free`),
+model range, and the PyMOL modification block (marked with `EDIT THIS BLOCK`).
 
 ### 8.8 Step 5 — System Solvation & Ionisation
 
@@ -928,7 +937,7 @@ command directly to the console.
 | 1 | `orca_steps_wsl.sh` | `QM/<mol>.xyz` | `SP_gas.molden`, `SP_solv.molden` |
 | 2 | `multiwfn_steps_*.ps1/.sh` | `SP_gas.molden`, `SP_solv.molden` | `QM/<mol>_opt.chg` |
 | 3 | `ligand_prep.sh` | `QM/<mol>.mol2` (or `.xyz`), `QM/<mol>_opt.chg` | `ff/<mol>_resp.*` (prepin, frcmod, pdb) |
-| 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` | `pdb_for_md/<PREFIX>_<LIG>_constrained/input_model_{i}.pdb` |
+| 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` (not required when `--lgd free`) | `pdb_for_md/<PREFIX>_<LIG>_constrained/input_model_{i}.pdb` |
 | 5 | `leap.sh` | `ff/<lig>_resp.prepin`, `ff/<lig>_resp.frcmod`, PDB models from Step 4 | `leap/<PREFIX>_<LIG>_constrained/cplx_{i}.prmtop/.rst7/.pdb` |
 
 ### 8.11 Dependencies Table
@@ -1309,7 +1318,7 @@ different ligand, protein, RNA, etc.):
 | `templates/MD/multiwfn_steps_windows.ps1` | Multiwfn path, Molden directory, output directory |
 | `templates/MD/multiwfn_steps_linux.sh` | Multiwfn path, Molden directory, output directory |
 | `templates/MD/ligand_prep.sh` | `MOL`, `NC`, `S` (molecule name, net charge, verbosity) |
-| `templates/MD/python/model_prep.py` | `seq`, `lgd`, `lgd_file`, model range; PyMOL modification block (EDIT THIS BLOCK) |
+| `templates/MD/python/model_prep.py` | `seq`, `lgd`, `lgd_file` (omit when `lgd=free`), model range; PyMOL modification block (EDIT THIS BLOCK) |
 | `templates/MD/leap.sh` | Default `-p` prefix, `-l` ligand name, model range, ion counts |
 | `templates/MD/R/ions.R` | `C_NaCl`, `C_MgCl2`, `Nw`, `Q` (ion concentrations, water count, system charge) |
 | **MD preparation + minimisation templates** | |
