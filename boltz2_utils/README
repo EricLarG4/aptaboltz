@@ -1,2 +1,54 @@
-Install with:
-`pip install -e ./boltz2_utils`
+# boltz2_utils
+
+Shared Python utilities for the **aptaBoltz** Boltz-2 prediction and post-processing pipeline.
+
+**Version:** 0.1.0
+**Author:** Eric Largy (eric.largy@u-bordeaux.fr)
+
+## Install
+
+```bash
+pip install -e ./boltz2_utils
+```
+
+## Modules
+
+| Module | Purpose |
+|--------|---------|
+| `generate_boltz2_yaml.py` | Build Boltz-2 input YAML files from sequence, ligand, and constraint definitions |
+| `generate_boltz2_slurm.py` | Generate SLURM submission scripts for Boltz-2 jobs |
+| `process_boltz_results.py` | Post-process predictions: aligned PyMOL sessions, ligand SDF/PNG, confidence/PAE/PDE/pLDDT CSV tables |
+| `process_boltz_results_nolgd.py` | Variant of the above for ligand-free (apo) predictions |
+| `base.py` | PyMOL base styling and colour scheme (imported by the processing scripts) |
+
+## Usage examples
+
+### Generate input files
+
+Edit your project's `input_file_generator.py` (from `templates/`), then run:
+
+```python
+from boltz2_utils.generate_boltz2_yaml import generate_yaml
+
+generate_yaml(
+    project="MyProject",
+    sequences=[...],
+    ligands={...},
+    constraints={...},
+    output_dir="MyProject/yaml",
+)
+```
+
+### Post-process predictions
+
+```python
+from boltz2_utils.process_boltz_results import process_single_experiment
+
+process_single_experiment(
+    project="MyProject",
+    experiment="Seq1_L01",
+    output_dir="MyProject/outputs",
+)
+```
+
+Produces aligned PyMOL sessions (`.pse`), ligand SDF files, chirality grid images (`.png`), and aggregated metrics tables (`.csv`).

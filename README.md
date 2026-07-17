@@ -47,22 +47,25 @@ templates/                  Project-specific files with PLACEHOLDER_ values
   process.R                   R visualisation (§6)
   yaml/                       (placeholder — generated YAML files)
   msa/                        (placeholder — custom MSAs)
+
   MD/
-    orca_steps_wsl.sh           ORCA single-point calculations (�8.4)
-    multiwfn_steps_windows.ps1  RESP2 charge fitting, Windows (�8.5.1)
-    multiwfn_steps_linux.sh     RESP2 charge fitting, Linux (�8.5.2)
-    ligand_prep.sh              AmberTools GAFF2 parameterisation (�8.6)
-    leap.sh                     Amber tLEAP solvation + ionisation (�8.8)
-      python/
-        generate_md_slurm.py        SLURM generator for PrepAndMin.slurm (§9.2)
-        generate_pmemd_inputs.py    Amber pmemd input file generator (§9.5)
-        model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
-      R/ions.R                    Ion concentration calculator (§8.9)
-      pmemd/in/
+    orca_steps_wsl.sh           ORCA single-point calculations (§8.4)
+    multiwfn_steps_windows.ps1  RESP2 charge fitting, Windows (§8.5.1)
+    multiwfn_steps_linux.sh     RESP2 charge fitting, Linux (§8.5.2)
+    ligand_prep.sh              AmberTools GAFF2 parameterisation (§8.6)
+    leap.sh                     Amber tLEAP solvation + ionisation (§8.8)
+    python/
+      generate_md_slurm.py        SLURM generator for PrepAndMin.slurm (§9.2)
+      generate_pmemd_inputs.py    Amber pmemd input file generator (§9.5)
+      model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
+    R/
+      ions.R                      Ion concentration calculator (§8.9)
+    pmemd/
+      in/
         archive/                    Previous versions of generated .in files
         step1.in — step10.in       Amber MD input control files (§9)
         final_min.in                Post-production minimisation (§9)
-      slurm/
+    slurm/
       PrepAndMin.slurm            Amber MD prep + minimisation SLURM array template (§9.1)
 
 CSS/                        Real usage example (corticosteron-specific aptamers)
@@ -120,71 +123,69 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
 
 ## Table of Contents
 
-- [aptaBoltz — Nucleic-Acid / Aptamer Analysis Pipeline for Boltz-2](#aptaboltz--nucleic-acid--aptamer-analysis-pipeline-for-boltz-2)
-    - [Scope](#scope)
-    - [Repository Structure](#repository-structure)
-  - [Boltz-2 Prediction Pipeline Overview](#boltz-2-prediction-pipeline-overview)
-  - [Table of Contents](#table-of-contents)
-  - [1. Prerequisites and Installation](#1-prerequisites-and-installation)
-    - [1.1 Platform Requirements](#11-platform-requirements)
-    - [1.2 Installation Options](#12-installation-options)
-    - [1.3 R Environment Setup](#13-r-environment-setup)
-    - [1.4 Verify Installation](#14-verify-installation)
-  - [2. Setting Up a New Project](#2-setting-up-a-new-project)
-    - [2.1 Boltz-2 Prediction Project](#21-boltz-2-prediction-project)
-    - [2.2 MD Parameterisation Project](#22-md-parameterisation-project)
-  - [3. Generating Input Files (YAML + SLURM)](#3-generating-input-files-yaml--slurm)
-    - [3.1 Step-by-Step Editing Guide](#31-step-by-step-editing-guide)
-    - [3.2 Generated Files](#32-generated-files)
-  - [4. Running Boltz-2 on a Cluster](#4-running-boltz-2-on-a-cluster)
-    - [4.1 Files to Transfer](#41-files-to-transfer)
-    - [4.2 Expected Outputs (per job)](#42-expected-outputs-per-job)
-    - [4.3 Common Submission Patterns](#43-common-submission-patterns)
-  - [5. Post-Processing: Python (PyMOL + RDKit)](#5-post-processing-python-pymol--rdkit)
-    - [5.1 Configuration](#51-configuration)
-    - [5.2 Usage](#52-usage)
-    - [5.3 What the Script Does](#53-what-the-script-does)
-    - [5.4 Generated Files](#54-generated-files)
-    - [5.5 Controlling Which Job Directories Are Processed](#55-controlling-which-job-directories-are-processed)
-  - [6. Post-Processing: R Visualisation](#6-post-processing-r-visualisation)
-    - [6.1 Minimal Setup](#61-minimal-setup)
-    - [6.2 Generated Files](#62-generated-files)
-    - [6.3 Function Reference](#63-function-reference)
-  - [7. Molecule Type Support](#7-molecule-type-support)
-    - [7.1 Troubleshooting — Boltz-2 Prediction Pipeline](#71-troubleshooting--boltz-2-prediction-pipeline)
-  - [8. MD Force-Field Parameterisation Pipeline](#8-md-force-field-parameterisation-pipeline)
-    - [8.1 Pipeline Overview](#81-pipeline-overview)
-    - [8.2 Platform Notes](#82-platform-notes)
-    - [8.3 Step 0 — QM Geometry Optimisation (external)](#83-step-0--qm-geometry-optimisation-external)
-    - [8.4 Step 1 — ORCA Single-Point Calculations](#84-step-1--orca-single-point-calculations)
-    - [8.5 Step 2 — RESP2 Charge Fitting](#85-step-2--resp2-charge-fitting)
-      - [8.5.1 Windows (recommended): `multiwfn_steps_windows.ps1`](#851-windows-recommended-multiwfn_steps_windowsps1)
-      - [8.5.2 Linux alternative: `multiwfn_steps_linux.sh`](#852-linux-alternative-multiwfn_steps_linuxsh)
-    - [8.6 Step 3 — Ligand Parameterisation](#86-step-3--ligand-parameterisation)
-    - [8.7 Step 4 — Model Preparation for MD](#87-step-4--model-preparation-for-md)
-    - [8.8 Step 5 — System Solvation \& Ionisation](#88-step-5--system-solvation--ionisation)
-    - [8.9 Ion Concentration Calculator](#89-ion-concentration-calculator)
-    - [8.10 Required Files Summary](#810-required-files-summary)
-    - [8.11 Dependencies Table](#811-dependencies-table)
-    - [8.12 Troubleshooting](#812-troubleshooting)
-  - [9. Amber MD Preparation and Minimisation Pipeline](#9-amber-md-preparation-and-minimisation-pipeline)
-    - [9.1 Pipeline Overview](#91-pipeline-overview)
-    - [9.2 SLURM Script Generation](#92-slurm-script-generation)
-    - [9.3 The 11-Step Protocol](#93-the-11-step-protocol)
-    - [9.4 Input File Descriptions](#94-input-file-descriptions)
-    - [9.5 Input File Generation](#95-input-file-generation)
-    - [9.6 Output Files (per task)](#96-output-files-per-task)
-    - [9.7 SLURM Configuration](#97-slurm-configuration)
-    - [9.8 Customisation Guide](#98-customisation-guide)
-    - [9.9 Troubleshooting](#99-troubleshooting)
-  - [10. File Reference](#10-file-reference)
-    - [Shared utilities (imported, do not edit for each project)](#shared-utilities-imported-do-not-edit-for-each-project)
-    - [Project-specific templates (copy and edit per project)](#project-specific-templates-copy-and-edit-per-project)
-  - [11. Appendix: Contact Constraints Format](#11-appendix-contact-constraints-format)
-    - [Format A: Flat list (backward-compatible)](#format-a-flat-list-backward-compatible)
-    - [Format B: Per-sequence dictionary](#format-b-per-sequence-dictionary)
-    - [Format C: Per-sequence + per-ligand dictionary (with wildcard)](#format-c-per-sequence--per-ligand-dictionary-with-wildcard)
-    - [What happens when constraints are defined](#what-happens-when-constraints-are-defined)
+- [Scope](#scope)
+- [Repository Structure](#repository-structure)
+- [Boltz-2 Prediction Pipeline Overview](#boltz-2-prediction-pipeline-overview)
+- [1. Prerequisites and Installation](#1-prerequisites-and-installation)
+  - [1.1 Platform Requirements](#11-platform-requirements)
+  - [1.2 Installation Options](#12-installation-options)
+  - [1.3 R Environment Setup](#13-r-environment-setup)
+  - [1.4 Verify Installation](#14-verify-installation)
+- [2. Setting Up a New Project](#2-setting-up-a-new-project)
+  - [2.1 Boltz-2 Prediction Project](#21-boltz-2-prediction-project)
+  - [2.2 MD Parameterisation Project](#22-md-parameterisation-project)
+- [3. Generating Input Files (YAML + SLURM)](#3-generating-input-files-yaml--slurm)
+  - [3.1 Step-by-Step Editing Guide](#31-step-by-step-editing-guide)
+  - [3.2 Generated Files](#32-generated-files)
+- [4. Running Boltz-2 on a Cluster](#4-running-boltz-2-on-a-cluster)
+  - [4.1 Files to Transfer](#41-files-to-transfer)
+  - [4.2 Expected Outputs (per job)](#42-expected-outputs-per-job)
+  - [4.3 Common Submission Patterns](#43-common-submission-patterns)
+- [5. Post-Processing: Python (PyMOL + RDKit)](#5-post-processing-python-pymol--rdkit)
+  - [5.1 Configuration](#51-configuration)
+  - [5.2 Usage](#52-usage)
+  - [5.3 What the Script Does](#53-what-the-script-does)
+  - [5.4 Generated Files](#54-generated-files)
+  - [5.5 Controlling Which Job Directories Are Processed](#55-controlling-which-job-directories-are-processed)
+- [6. Post-Processing: R Visualisation](#6-post-processing-r-visualisation)
+  - [6.1 Minimal Setup](#61-minimal-setup)
+  - [6.2 Generated Files](#62-generated-files)
+  - [6.3 Function Reference](#63-function-reference)
+- [7. Molecule Type Support](#7-molecule-type-support)
+  - [7.1 Troubleshooting — Boltz-2 Prediction Pipeline](#71-troubleshooting--boltz-2-prediction-pipeline)
+- [8. MD Force-Field Parameterisation Pipeline](#8-md-force-field-parameterisation-pipeline)
+  - [8.1 Pipeline Overview](#81-pipeline-overview)
+  - [8.2 Platform Notes](#82-platform-notes)
+  - [8.3 Step 0 — QM Geometry Optimisation (external)](#83-step-0--qm-geometry-optimisation-external)
+  - [8.4 Step 1 — ORCA Single-Point Calculations](#84-step-1--orca-single-point-calculations)
+  - [8.5 Step 2 — RESP2 Charge Fitting](#85-step-2--resp2-charge-fitting)
+    - [8.5.1 Windows (recommended): `multiwfn_steps_windows.ps1`](#851-windows-recommended-multiwfn_steps_windowsps1)
+    - [8.5.2 Linux alternative: `multiwfn_steps_linux.sh`](#852-linux-alternative-multiwfn_steps_linuxsh)
+  - [8.6 Step 3 — Ligand Parameterisation](#86-step-3--ligand-parameterisation)
+  - [8.7 Step 4 — Model Preparation for MD](#87-step-4--model-preparation-for-md)
+  - [8.8 Step 5 — System Solvation \& Ionisation](#88-step-5--system-solvation--ionisation)
+  - [8.9 Ion Concentration Calculator](#89-ion-concentration-calculator)
+  - [8.10 Required Files Summary](#810-required-files-summary)
+  - [8.11 Dependencies Table](#811-dependencies-table)
+  - [8.12 Troubleshooting](#812-troubleshooting)
+- [9. Amber MD Preparation and Minimisation Pipeline](#9-amber-md-preparation-and-minimisation-pipeline)
+  - [9.1 Pipeline Overview](#91-pipeline-overview)
+  - [9.2 SLURM Script Generation](#92-slurm-script-generation)
+  - [9.3 The 11-Step Protocol](#93-the-11-step-protocol)
+  - [9.4 Input File Descriptions](#94-input-file-descriptions)
+  - [9.5 Input File Generation](#95-input-file-generation)
+  - [9.6 Output Files (per task)](#96-output-files-per-task)
+  - [9.7 SLURM Configuration](#97-slurm-configuration)
+  - [9.8 Customisation Guide](#98-customisation-guide)
+  - [9.9 Troubleshooting](#99-troubleshooting)
+- [10. File Reference](#10-file-reference)
+  - [Shared utilities (imported, do not edit for each project)](#shared-utilities-imported-do-not-edit-for-each-project)
+  - [Project-specific templates (copy and edit per project)](#project-specific-templates-copy-and-edit-per-project)
+- [11. Appendix: Contact Constraints Format](#11-appendix-contact-constraints-format)
+  - [Format A: Flat list (backward-compatible)](#format-a-flat-list-backward-compatible)
+  - [Format B: Per-sequence dictionary](#format-b-per-sequence-dictionary)
+  - [Format C: Per-sequence + per-ligand dictionary (with wildcard)](#format-c-per-sequence--per-ligand-dictionary-with-wildcard)
+  - [What happens when constraints are defined](#what-happens-when-constraints-are-defined)
 
 ---
 
@@ -337,7 +338,7 @@ max_distance = 4.0           # stem contact distance (Å), DNA/RNA only
 
 Set `additional_pairs` to add extra residue-pair contacts.  Three formats
 are accepted (flat list, per-sequence dict, per-sequence+per-ligand dict
-with `"*"` wildcard).  See [Appendix 10](#10-appendix-contact-constraints-format).
+with `"*"` wildcard).  See [Appendix 11](#11-appendix-contact-constraints-format).
 Set to `None` to omit.
 
 **Step 3 — Define ligands:**
@@ -603,7 +604,7 @@ molecule-type agnostic and work for any system.
 | R: `object 'process_confidence' not found` | `processor.R` not sourced | Check path in `source('boltz_R_utils/processor.R')` |
 | R: conda environment not active | `install_packages.R` not run first | Run `source('boltz_R_utils/install_packages.R')` once |
 | R: CSV files not found | Python post-processing not run | Run `output_file_processing.py` first |
-| `_constrained` jobs missing | `additional_pairs` resolves to empty | Check contact-constraint format in Appendix 10 |
+| `_constrained` jobs missing | `additional_pairs` resolves to empty | Check contact-constraint format in Appendix 11 |
 | Custom MSA not used | File not found or named wrong | Place `{seq_name}.a3m` in `{project}/msa/` and set `custom_msa = True` |
 | PyMOL session colours wrong | Unexpected chain/residue naming in CIF | Check the CIF output; may need adjustments in `base.py` |
 
@@ -657,7 +658,7 @@ simulations that complement the Boltz-2 structure predictions.
                             ┌──────────────────────────────────────────┐
                             │  model_prep.py              (PyMOL)      │
                             │  Boltz-2 prediction CIFs → MD-ready PDB  │
-                            │  →  pdb_for_md/<PREFIX>_<LIG>_constrained│
+                            │  →  pdb_for_md/<PREFIX>_<LIGAND>_constrained│
                             │      /input_model_{i}.pdb                │
                             └──────────────────────────────────────────┘
                                             │
@@ -665,7 +666,7 @@ simulations that complement the Boltz-2 structure predictions.
                             ┌──────────────────────────────────────────┐
                             │  leap.sh                   (WSL/Linux)   │
                             │  tLEAP solvation + ionisation            │
-                            │  →  leap/<PREFIX>_<LIG>_constrained/     │
+                            │  →  leap/<PREFIX>_<LIGAND>_constrained/   │
                             │      cplx_{i}.prmtop / .rst7 / .pdb      │
                             └──────────────────────────────────────────┘
                                             │
@@ -940,8 +941,8 @@ command directly to the console.
 | 1 | `orca_steps_wsl.sh` | `QM/<mol>.xyz` | `SP_gas.molden`, `SP_solv.molden` |
 | 2 | `multiwfn_steps_*.ps1/.sh` | `SP_gas.molden`, `SP_solv.molden` | `QM/<mol>_opt.chg` |
 | 3 | `ligand_prep.sh` | `QM/<mol>.mol2` (or `.xyz`), `QM/<mol>_opt.chg` | `ff/<mol>_resp.*` (prepin, frcmod, pdb) |
-| 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` (not required when `--lgd free`) | `pdb_for_md/<PREFIX>_<LIG>_constrained/input_model_{i}.pdb` |
-| 5 | `leap.sh` | `ff/<lig>_resp.prepin` (not required with `-l free`), `ff/<lig>_resp.frcmod` (not required with `-l free`), PDB models from Step 4 | `leap/<PREFIX>_<LIG>_constrained/cplx_{i}.prmtop/.rst7/.pdb` |
+| 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` (not required when `--lgd free`) | `pdb_for_md/<PREFIX>_<LIGAND>_constrained/input_model_{i}.pdb` |
+| 5 | `leap.sh` | `ff/<lig>_resp.prepin` (not required with `-l free`), `ff/<lig>_resp.frcmod` (not required with `-l free`), PDB models from Step 4 | `leap/<PREFIX>_<LIGAND>_constrained/cplx_{i}.prmtop/.rst7/.pdb` |
 
 ### 8.11 Dependencies Table
 
@@ -1427,4 +1428,3 @@ When `additional_pairs` resolves to a **non-empty** list for a given
 - Both an **unconstrained** and a **constrained** YAML file are
   generated for that entry, allowing direct comparison of the two
   conditions.
-
