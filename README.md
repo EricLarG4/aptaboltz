@@ -870,7 +870,7 @@ model range, and the PyMOL modification block (marked with `EDIT THIS BLOCK`).
 
 Creates a single tLEAP input script that:
 - Loads force fields (GAFF2, DNA.OL21, OPC water)
-- Loads the ligand prepin and frcmod
+- Loads the ligand prepin and frcmod (skipped with `-l free`)
 - Loads each PDB model from `pdb_for_md/<PREFIX>_<LIGAND>_constrained/`
 - Solvates in an OPC water box (14.0 Å buffer)
 - Adds Na⁺/Mg²⁺/Cl⁻ ions with automatic Cl⁻ distribution (MgCl₂ + NaCl)
@@ -882,15 +882,18 @@ Runs tLEAP on the combined input, then converts each rst7 to PDB with ambpdb.
 ./leap.sh -p <prefix> -l <ligand> -s <start> -e <end> -n <na> -m <mg> -c <cl>
 ```
 
-**Example:**
+**Examples:**
 ```bash
 # CSS1, ligand hcy, models 0-24, 65 Na⁺, 1 Mg²⁺, 22 Cl⁻
 ./leap.sh -p CSS1 -l hcy -s 0 -e 24 -n 65 -m 1 -c 22
+
+# No-ligand mode (no prepin/frcmod needed)
+./leap.sh -p CSS1 -l free -s 0 -e 24 -n 65 -m 1 -c 22
 ```
 
 **Inputs required:**
-- `ff/<ligand>_resp.prepin` — from Step 3
-- `ff/<ligand>_resp.frcmod` — from Step 3
+- `ff/<ligand>_resp.prepin` — from Step 3 (not required with `-l free`)
+- `ff/<ligand>_resp.frcmod` — from Step 3 (not required with `-l free`)
 - `pdb_for_md/<PREFIX>_<LIGAND>_constrained/input_model_{i}.pdb` — from Step 4
 
 **Deliverables** (in `leap/<PREFIX>_<LIGAND>_constrained/`):
@@ -938,7 +941,7 @@ command directly to the console.
 | 2 | `multiwfn_steps_*.ps1/.sh` | `SP_gas.molden`, `SP_solv.molden` | `QM/<mol>_opt.chg` |
 | 3 | `ligand_prep.sh` | `QM/<mol>.mol2` (or `.xyz`), `QM/<mol>_opt.chg` | `ff/<mol>_resp.*` (prepin, frcmod, pdb) |
 | 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` (not required when `--lgd free`) | `pdb_for_md/<PREFIX>_<LIG>_constrained/input_model_{i}.pdb` |
-| 5 | `leap.sh` | `ff/<lig>_resp.prepin`, `ff/<lig>_resp.frcmod`, PDB models from Step 4 | `leap/<PREFIX>_<LIG>_constrained/cplx_{i}.prmtop/.rst7/.pdb` |
+| 5 | `leap.sh` | `ff/<lig>_resp.prepin` (not required with `-l free`), `ff/<lig>_resp.frcmod` (not required with `-l free`), PDB models from Step 4 | `leap/<PREFIX>_<LIG>_constrained/cplx_{i}.prmtop/.rst7/.pdb` |
 
 ### 8.11 Dependencies Table
 
@@ -1065,6 +1068,15 @@ python python/generate_md_slurm.py \
     --scratchdir scratch/boltz/projects/CSS/MD
 ```
 
+For a **no-ligand** run, use `"free"` in the experiment name:
+
+```bash
+python python/generate_md_slurm.py \
+    --experiment CSS1_free_constrained \
+    --array 0-4 \
+    --scratchdir scratch/boltz/projects/CSS/MD
+```
+
 **Output:**  `slurm/<experiment>_PrepAndMin.slurm` (e.g. `slurm/CSS1_HCY_constrained_PrepAndMin.slurm`)
 
 The output filename includes the experiment name so multiple projects can
@@ -1147,6 +1159,17 @@ python python/generate_pmemd_inputs.py \
     --macromol-start 1 \
     --macromol-end 46 \
     --ligand-idx 47 \
+    --production-ns 100
+```
+
+For a **no-ligand** system, simply omit `--ligand-idx`:
+
+```bash
+cd my_project/MD
+python python/generate_pmemd_inputs.py \
+    --macromol-type dna \
+    --macromol-start 1 \
+    --macromol-end 46 \
     --production-ns 100
 ```
 
@@ -1250,11 +1273,19 @@ different ligand, protein, RNA, etc.):
 1. **Copy the template files** (see §2.2).
 2. **Generate pmemd input files** with `generate_pmemd_inputs.py`:
    ```bash
+   # With ligand
    python python/generate_pmemd_inputs.py \
        --macromol-type dna \
        --macromol-start 1 \
        --macromol-end 46 \
        --ligand-idx 47 \
+       --production-ns 100
+
+   # Without ligand (omit --ligand-idx)
+   python python/generate_pmemd_inputs.py \
+       --macromol-type dna \
+       --macromol-start 1 \
+       --macromol-end 46 \
        --production-ns 100
    ```
    See §9.5 for full argument details.
@@ -1319,7 +1350,7 @@ different ligand, protein, RNA, etc.):
 | `templates/MD/multiwfn_steps_linux.sh` | Multiwfn path, Molden directory, output directory |
 | `templates/MD/ligand_prep.sh` | `MOL`, `NC`, `S` (molecule name, net charge, verbosity) |
 | `templates/MD/python/model_prep.py` | `seq`, `lgd`, `lgd_file` (omit when `lgd=free`), model range; PyMOL modification block (EDIT THIS BLOCK) |
-| `templates/MD/leap.sh` | Default `-p` prefix, `-l` ligand name, model range, ion counts |
+| `templates/MD/leap.sh` | Default `-p` prefix, `-l` ligand name (use `-l free` for no-ligand mode), model range, ion counts |
 | `templates/MD/R/ions.R` | `C_NaCl`, `C_MgCl2`, `Nw`, `Q` (ion concentrations, water count, system charge) |
 | **MD preparation + minimisation templates** | |
 | `templates/MD/python/generate_pmemd_inputs.py` | `macromol_type`, `macromol_start`, `macromol_end`, `ligand_idx`, `production_ns` — generates all 11 `pmemd/in/*.in` files from system parameters (§9.5) |

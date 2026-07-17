@@ -25,6 +25,7 @@
 #                Used in pdb_for_md/<PREFIX>_<UPPER>_constrained/ and
 #                leap/<PREFIX>_<UPPER>_constrained/ paths.
 #   -l <name>    Ligand name (default: PLACEHOLDER_LIGAND).
+#                Use -l free for no-ligand mode (no prepin/frcmod needed).
 #                Used for ff/${ligand}_resp.prepin/.frcmod and
 #                pdb_for_md/<PREFIX>_<UPPER>_constrained paths.
 #   -s <int>     Starting model index, inclusive (default: 0)
@@ -120,8 +121,12 @@ while getopts "p:l:s:e:n:m:c:h" opt; do
   esac
 done
 
-# Convert ligand to uppercase for directory/file naming
-ligand_upper=$(echo "$ligand" | tr '[:lower:]' '[:upper:]')
+# Convert ligand to uppercase for directory/file naming (keep "free" lowercase)
+if [ "$ligand" = "free" ]; then
+  ligand_upper="free"
+else
+  ligand_upper=$(echo "$ligand" | tr '[:lower:]' '[:upper:]')
+fi
 
 # Calculate Cl- for MgCl2 and remaining for NaCl
 # Each Mg2+ requires 2 Cl- → MgCl2
@@ -137,9 +142,14 @@ cat > "${leap_subdir}/tleap.in" << EOF
 source leaprc.gaff2
 source leaprc.DNA.OL24
 source leaprc.water.opc
+EOF
+
+if [ "$ligand" != "free" ]; then
+  cat >> "${leap_subdir}/tleap.in" << EOF
 loadAmberPrep ff/${ligand}_resp.prepin
 loadAmberParams ff/${ligand}_resp.frcmod
 EOF
+fi
 
 for i in $(seq "$start_model" "$end_model"); do
   cat >> "${leap_subdir}/tleap.in" << EOF

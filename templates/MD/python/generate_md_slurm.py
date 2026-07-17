@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         "--sequential",
         action="store_true",
         default=False,
-        help="Run array tasks sequentially (%1 throttle). Default: false",
+        help="Run array tasks sequentially (%%1 throttle). Default: false",
     )
     return parser.parse_args()
 
