@@ -160,12 +160,14 @@ awk '{gsub(/\r/,"")} NR==FNR {charge[NR]=$5; next} /^ATOM/ {sub(/[^ ]+ +[^ ]+$/,
   QM/${MOL}_opt.chg antechamber/${MOL}.ac > antechamber/${MOL}_resp.ac
 echo -e "  ${DIM}• antechamber/${MOL}_resp.ac${RST}"
 cp antechamber/${MOL}_resp.ac ff/${MOL}_resp.pdb
+python templates/MD/python/fix_pdb_elements.py ff/${MOL}_resp.pdb
 echo -e "  ${DIM}• ff/${MOL}_resp.pdb (for complex preparation in tLeap)${RST}"
 
 header "Step 3/4: Generating Amber prepin library file" $GREEN
 
 prepgen -i antechamber/${MOL}_resp.ac -o ff/${MOL}_resp.prepin -rn ${MOL^^}
 mv -f PREP.INF NEWPDB.PDB ff/prepin/ 2>/dev/null
+python templates/MD/python/fix_pdb_elements.py ff/prepin/NEWPDB.PDB
 echo -e "  ${DIM}• ff/${MOL}_resp.prepin${RST}"
 echo -e "  ${DIM}• ff/prepin/ (auxiliary files)${RST}"
 
