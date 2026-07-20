@@ -17,7 +17,7 @@ DESCRIPTION
          run model_prep.py
          prep_model(seq="PLACEHOLDER_SEQ", lgd="PLACEHOLDER_LGD", ...)
 
-     2. Command line (from bash / PowerShell):
+    2. Command line (from bash / PowerShell):
           python model_prep.py [--seq PLACEHOLDER_SEQ] [--lgd PLACEHOLDER_LGD]
                                [--lgd-file placeholder_lgd_resp] [--unconstrained]
                                [--job J0000000] [--models 0-24]
@@ -56,32 +56,47 @@ def prep_model(
     constrained=True,
     job="J0000000",
     models=range(0, 25),
+    output_lgd=None,
+    use_pair_fit=False,
 ):
     """Load, modify, and save Boltz prediction models for MD.
 
     Parameters
     ----------
     seq : str
-        Sequence identifier (e.g. "CSS1"). Used in directory paths.
+        Sequence identifier (e.g. "CSS1").         Used in directory paths.
     lgd : str
-        Three-letter ligand residue name as used in Boltz-2 output (e.g. "HCY"),
-        or "free" for apo (ligand-free) predictions.
+        Ligand identifier for directory path construction (e.g. "Piperaquine").
+        When Boltz-2 was run with a SMILES ligand, the output residue is
+        auto-detected as "LIG1" and renamed to output_lgd.
+        Use "free" for apo (ligand-free) predictions.
     lgd_file : str or None
         Name of the reference ligand PDB file (without .pdb suffix),
         located in ff/{lgd_file}.pdb (from ligand_prep.sh).
         Ignored when lgd="free".
+    output_lgd : str or None
+        Desired three-letter residue name in the output PDB (e.g. "PQ").
+        If None, defaults to the value of lgd.
     constrained : bool
         If True, appends "_constrained" to the run directory name.
     job : str
         Job identifier for locating Boltz-2 prediction files.
     models : iterable
         Model indices to process (e.g. range(0, 25)).
+    use_pair_fit : bool
+        If True, strip hydrogens from the reference ligand and use
+        ``cmd.pair_fit`` (atom-type-based pairing) instead of
+        ``cmd.align`` (name-based alignment).  Useful for SMILES-based
+        predictions where atom names diverge between the QM reference
+        and the Boltz prediction.
     """
 
     from pymol import cmd
 
     suffix = "_constrained" if constrained else ""
     has_ligand = lgd.lower() != "free"
+    if output_lgd is None:
+        output_lgd = lgd
 
     input_dir = f"../{seq}_{lgd}{suffix}/{job}/boltz_results_input/predictions/input"
     output_dir = f"pdb_for_md/{seq}_{lgd}{suffix}"
@@ -118,18 +133,28 @@ def prep_model(
         # ────────────────────────────────────────────────────────────────
 
         if has_ligand:
+            # Determine the actual ligand residue name in the prediction
+            pred_lgd = output_lgd
+            if cmd.count_atoms(f"resn {output_lgd}") == 0 and cmd.count_atoms("resn LIG1") > 0:
+                pred_lgd = "LIG1"
+                print(f"Ligand '{output_lgd}' not found; using 'LIG1' from prediction.")
+
             # Align the reference ligand PDB onto the predicted ligand
             cmd.load(lgd_path)
-            cmd.align("resn UNL", f"resn {lgd}")
-            cmd.alter("resn UNL", f"resn = '{lgd}'")
-            cmd.alter(f"{lgd_file} and resn {lgd}", f"resi={n_res + 1}")
-            print(f"Ligand {lgd} aligned and relabeled to resi {n_res + 1}.")
+            if use_pair_fit:
+                cmd.remove("resn UNL and h.")
+                cmd.pair_fit("resn UNL", f"resn {pred_lgd}")
+            else:
+                cmd.align("resn UNL", f"resn {pred_lgd}")
+            cmd.alter("resn UNL", f"resn = '{output_lgd}'")
+            cmd.alter(f"{lgd_file} and resn {output_lgd}", f"resi={n_res + 1}")
+            print(f"Ligand {output_lgd} aligned and relabeled to resi {n_res + 1}.")
 
             # Remove the original predicted ligand, reassign chain B
-            cmd.remove(f"chain B and resn {lgd}")
-            cmd.alter(f"resn {lgd}", "chain='B'")
+            cmd.remove(f"chain B and resn {pred_lgd}")
+            cmd.alter(f"resn {output_lgd}", "chain='B'")
             cmd.alter("chain A", "segi=''")
-            print(f"Original ligand removed. Chain B reassigned to {lgd}.")
+            print(f"Original ligand removed. Chain B reassigned to {output_lgd}.")
 
             # Merge into a single object and clean up
             cmd.create("seq", f"input_model_{models[model]} or {lgd_file}")
@@ -155,7 +180,7 @@ def prep_model(
         readme_file.write(f"Preparation Summary for {seq}_{lgd}{suffix}\n")
         readme_file.write(f"Job Identifier: {job}\n")
         if has_ligand:
-            readme_file.write(f"Ligand Residue Name: {lgd}\n")
+            readme_file.write(f"Ligand Residue Name: {output_lgd}\n")
             readme_file.write(f"Ligand Reference File: {lgd_file}.pdb\n")
         readme_file.write(f"Constrained Run: {'Yes' if constrained else 'No'}\n")
         readme_file.write(f"Models Processed: {', '.join(map(str, models))}\n")
@@ -172,7 +197,12 @@ if __name__ == "__main__":
         description="Prepare Boltz-2 prediction CIFs for MD simulation."
     )
     parser.add_argument("--seq", default="PLACEHOLDER_SEQ", help="Sequence identifier")
-    parser.add_argument("--lgd", default="PLACEHOLDER_LGD", help="Ligand residue name")
+    parser.add_argument("--lgd", default="PLACEHOLDER_LGD", help="Ligand identifier (directory path)")
+    parser.add_argument(
+        "--output-lgd",
+        default=None,
+        help="Desired output residue name (defaults to --lgd value)",
+    )
     parser.add_argument(
         "--lgd-file",
         default=None,
@@ -192,6 +222,11 @@ if __name__ == "__main__":
         "--models",
         default="0-24",
         help="Model range, e.g. '0-24' or '0,1,2'",
+    )
+    parser.add_argument(
+        "--use-pair-fit",
+        action="store_true",
+        help="Use pair_fit + hydrogen-stripping instead of align (SMILES ligands)",
     )
     args = parser.parse_args()
 
@@ -222,4 +257,6 @@ if __name__ == "__main__":
         constrained=not args.unconstrained,
         job=args.job,
         models=models,
+        output_lgd=args.output_lgd,
+        use_pair_fit=args.use_pair_fit,
     )
