@@ -57,6 +57,7 @@ templates/                  Project-specific files with PLACEHOLDER_ values
     python/
       generate_md_slurm.py        SLURM generator for PrepAndMin.slurm (§9.2)
       generate_pmemd_inputs.py    Amber pmemd input file generator (§9.5)
+      fix_pdb_elements.py         Add PDB element columns to Amber AC files (§8.6)
       model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
       pymol_utils.py              PyMOL visualisation utilities (§9.11)
     R/
@@ -814,7 +815,16 @@ If `QM/<MOL>.mol2` is not found, the script automatically looks for
 **Outputs:**
 - `ff/<MOL>_resp.prepin` — Amber prepin library
 - `ff/<MOL>_resp.frcmod` — Force-field modifications
-- `ff/<MOL>_resp.pdb` — PDB-like file for tLeap complex preparation
+- `ff/<MOL>_resp.pdb` — PDB-like file for tLeap complex preparation (element
+  symbols in columns 77-78 are auto-added by `fix_pdb_elements.py`)
+
+**Post-processing (automatic):** After copying the Amber AC file to
+`ff/<MOL>_resp.pdb`, `ligand_prep.sh` automatically runs
+`fix_pdb_elements.py` to insert the correct element symbol in PDB columns
+77-78 (detected from the atom name in columns 13-16).  This ensures that
+molecular viewers (PyMOL, VMD) correctly recognise multi-character elements
+such as chlorine (`Cl`) or bromine (`Br`).  The same fix is applied to
+`ff/prepin/NEWPDB.PDB` (the auxiliary PDB from prepgen).
 
 ### 8.7 Step 4 — Model Preparation for MD
 
@@ -836,6 +846,21 @@ When `--lgd free` is used, all ligand-related operations (ligand
 alignment, reference PDB loading, chain B reassignment) are skipped.
 The script processes the DNA-only structure directly.
 
+**SMILES ligand handling:** When Boltz-2 predictions use SMILES instead
+of a CCD code, the ligand is named `LIG1` in the output CIF. The script
+auto-detects this: if the expected residue name (`--lgd` or `--output-lgd`)
+is not found but `LIG1` is, it automatically uses `LIG1` from the
+prediction and renames it to the desired output name.
+
+**Alignment with SMILES-based ligands:** When a ligand was provided as a
+SMILES string (rather than a CCD code), the predicted and reference
+structures often use different atom-naming conventions (e.g. `CL34` vs
+`Cl1`), causing `cmd.align` to fail.  Pass `--use-pair-fit` to switch to
+`cmd.pair_fit`, which pairs atoms by element type rather than by name.
+Hydrogens are stripped from the reference before alignment since they are
+absent in Boltz predictions.
+
+
 **CAUTION:** The PyMOL operations in `prep_model()` are specific to
 **DNA aptamers** (5' phosphate removal, terminal hydroxyl capping).
 If your system is RNA or protein, edit the marked block in the script
@@ -843,9 +868,17 @@ before running.
 
 **Usage (command line):**
 ```bash
-# With ligand
+# With ligand (CCD-based — output name matches prediction)
 cd my_project/MD
 python python/model_prep.py --seq <PREFIX> --lgd <LIGAND> --lgd-file <LGD_FILE> [options]
+
+# With ligand (SMILES-based — specify output name separately)
+cd my_project/MD
+python python/model_prep.py --seq <PREFIX> --lgd <DIR_LGD> --output-lgd <OUTPUT_LGD> --lgd-file <LGD_FILE>
+
+# With ligand (SMILES-based — use pair_fit when names differ)
+cd my_project/MD
+python python/model_prep.py --seq <PREFIX> --lgd <DIR_LGD> --output-lgd <OUTPUT_LGD> --lgd-file <LGD_FILE> --use-pair-fit
 
 # Without ligand (apo predictions)
 cd my_project/MD
@@ -870,6 +903,8 @@ Auto-detects the latest Boltz-2 job directory if `--job` is omitted.
 
 **Edits required in template:** Sequence name (`--seq`), ligand name
 (`--lgd`), reference PDB name (`--lgd-file`, omit when using `--lgd free`),
+optionally `--output-lgd` for a different output residue name,
+`--use-pair-fit` for SMILES-based ligands with diverging atom names,
 model range, and the PyMOL modification block (marked with `EDIT THIS BLOCK`).
 
 ### 8.8 Step 5 — System Solvation & Ionisation
@@ -975,10 +1010,12 @@ command directly to the console.
 | RESP2 charges look wrong | Atom ordering mismatch | Verify identical atom ordering between `.mol2` and `.chg` files |
 | PyMOL: `prep_model()` fails | Missing job directory | Check that the Boltz-2 prediction CIFs are in the expected path; use `--job` explicitly |
 | PyMOL: modifications don't match system | Default DNA-specific operations | Edit the "EDIT THIS BLOCK" section in `model_prep.py` for your system (RNA/protein/other) |
+| PyMOL: `align` fails with `invalid selections` for SMILES ligands | Atom names differ between reference and prediction | Pass `--use-pair-fit` to use `cmd.pair_fit` (element-based pairing) instead |
 | `leap.sh`: `CSS1_` directory not found | Wrong prefix | Use `-p` to specify your project prefix (e.g. `-p MYPROJ`) |
 | tLEAP reports missing parameters | frcmod has ATTN warnings | Review `ff/<ligand>_resp.frcmod` and adjust parmchk2 output |
 | OPC water model unrecognised | AmberTools version | Requires AmberTools ≥ 18 for `leaprc.water.opc` |
 | Ion counts are wrong | Incorrect Nw or Q | Run `leap.sh` once with approximate values, extract Nw from leap.log, then use `ions.R` to recalculate |
+| Chlorine atoms show as carbon in PyMOL | Missing element symbol in PDB columns 77-78 | Re-run `fix_pdb_elements.py` on the PDB file, or re-run `ligand_prep.sh` (step 2 now auto-applies the fix) |
 
 ---
 
@@ -1463,7 +1500,8 @@ residue number only.
 | `templates/MD/multiwfn_steps_windows.ps1` | Multiwfn path, Molden directory, output directory |
 | `templates/MD/multiwfn_steps_linux.sh` | Multiwfn path, Molden directory, output directory |
 | `templates/MD/ligand_prep.sh` | `MOL`, `NC`, `S` (molecule name, net charge, verbosity) |
-| `templates/MD/python/model_prep.py` | `seq`, `lgd`, `lgd_file` (omit when `lgd=free`), model range; PyMOL modification block (EDIT THIS BLOCK) |
+| `templates/MD/python/fix_pdb_elements.py` | No edits required — automatically called by `ligand_prep.sh` to add element symbols (cols 77-78) to Amber AC-format PDB files; can also be run standalone on any AC-format PDB |
+| `templates/MD/python/model_prep.py` | `seq`, `lgd`, `lgd_file` (omit when `lgd=free`), optionally `output_lgd` for residue naming; `--use-pair-fit` for SMILES-based ligands; model range; PyMOL modification block (EDIT THIS BLOCK) |
 | `templates/MD/leap.sh` | Default `-p` prefix, `-l` ligand name (use `-l free` for no-ligand mode), model range, ion counts |
 | `templates/MD/R/ions.R` | `C_NaCl`, `C_MgCl2`, `Nw`, `Q` (ion concentrations, water count, system charge) |
 | `templates/MD/R/md_utils.R` | `sim_time`, `extract_freq` (globals for `read_rmsd()`); all other parameters are function arguments (§9.10) |
