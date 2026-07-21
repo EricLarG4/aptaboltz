@@ -861,6 +861,12 @@ Hydrogens are stripped from the reference before alignment since they are
 absent in Boltz predictions.
 
 
+**Cross-model state:** Each iteration loads a new CIF, processes it, and
+merges the result into a `"seq"` PyMOL object which is saved and then
+deleted.  This ensures that residue queries (e.g. `count_atoms` for LIG1
+detection) operate only on the current model, not on lingering data from
+previous models.
+
 **CAUTION:** The PyMOL operations in `prep_model()` are specific to
 **DNA aptamers** (5' phosphate removal, terminal hydroxyl capping).
 If your system is RNA or protein, edit the marked block in the script
@@ -1011,6 +1017,7 @@ command directly to the console.
 | PyMOL: `prep_model()` fails | Missing job directory | Check that the Boltz-2 prediction CIFs are in the expected path; use `--job` explicitly |
 | PyMOL: modifications don't match system | Default DNA-specific operations | Edit the "EDIT THIS BLOCK" section in `model_prep.py` for your system (RNA/protein/other) |
 | PyMOL: `align` fails with `invalid selections` for SMILES ligands | Atom names differ between reference and prediction | Pass `--use-pair-fit` to use `cmd.pair_fit` (element-based pairing) instead |
+| PyMOL: output PDBs have an extra `LIG1` residue on chain B in models ≥ 1 (model 0 is correct) | The merged `"seq"` object from the previous model persists in PyMOL, causing `count_atoms("resn <lgd>")` to return > 0 — the LIG1 auto-detect is skipped and the predicted ligand is never removed | Update to the latest `model_prep.py` (the fix clears `"seq"` after each model and scopes the residue check to the just-loaded CIF object) |
 | `leap.sh`: `CSS1_` directory not found | Wrong prefix | Use `-p` to specify your project prefix (e.g. `-p MYPROJ`) |
 | tLEAP reports missing parameters | frcmod has ATTN warnings | Review `ff/<ligand>_resp.frcmod` and adjust parmchk2 output |
 | OPC water model unrecognised | AmberTools version | Requires AmberTools ≥ 18 for `leaprc.water.opc` |
