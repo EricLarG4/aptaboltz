@@ -664,10 +664,10 @@ simulations that complement the Boltz-2 structure predictions.
                                             │
                                             ▼
                             ┌──────────────────────────────────────────┐
-                            │  model_prep.py              (PyMOL)      │
-                            │  Boltz-2 prediction CIFs → MD-ready PDB  │
-                            │  →  pdb_for_md/<PREFIX>_<LIGAND>_constrained│
-                            │      /input_model_{i}.pdb                │
+                             │  model_prep.py              (PyMOL)      │
+                             │  Boltz-2 prediction CIFs → MD-ready PDB  │
+                             │  →  pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/   │
+                             │      input_model_{i}.pdb                   │
                             └──────────────────────────────────────────┘
                                             │
                                             ▼
@@ -898,8 +898,8 @@ Auto-detects the latest Boltz-2 job directory if `--job` is omitted.
   (not required when `--lgd free`)
 
 **Outputs:**
-- `pdb_for_md/<PREFIX>_<LIGAND>_constrained/input_model_{i}.pdb`
-- `pdb_for_md/<PREFIX>_<LIGAND>_constrained/README.txt`
+- `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/input_model_{i}.pdb`
+- `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/README.txt`
 
 **Edits required in template:** Sequence name (`--seq`), ligand name
 (`--lgd`), reference PDB name (`--lgd-file`, omit when using `--lgd free`),
@@ -914,7 +914,7 @@ model range, and the PyMOL modification block (marked with `EDIT THIS BLOCK`).
 Creates a single tLEAP input script that:
 - Loads force fields (GAFF2, DNA.OL21, OPC water)
 - Loads the ligand prepin and frcmod (skipped with `-l free`)
-- Loads each PDB model from `pdb_for_md/<PREFIX>_<LIGAND>_constrained/`
+- Loads each PDB model from `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/`
 - Solvates in an OPC water box (14.0 Å buffer)
 - Adds Na⁺/Mg²⁺/Cl⁻ ions with automatic Cl⁻ distribution (MgCl₂ + NaCl)
 
@@ -937,7 +937,7 @@ Runs tLEAP on the combined input, then converts each rst7 to PDB with ambpdb.
 **Inputs required:**
 - `ff/<ligand>_resp.prepin` — from Step 3 (not required with `-l free`)
 - `ff/<ligand>_resp.frcmod` — from Step 3 (not required with `-l free`)
-- `pdb_for_md/<PREFIX>_<LIGAND>_constrained/input_model_{i}.pdb` — from Step 4
+- `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/input_model_{i}.pdb` — from Step 4
 
 **Deliverables** (in `leap/<PREFIX>_<LIGAND>_constrained/`):
 - `tleap.in` — Combined tLEAP input script
@@ -983,7 +983,7 @@ command directly to the console.
 | 1 | `orca_steps_wsl.sh` | `QM/<mol>.xyz` | `SP_gas.molden`, `SP_solv.molden` |
 | 2 | `multiwfn_steps_*.ps1/.sh` | `SP_gas.molden`, `SP_solv.molden` | `QM/<mol>_opt.chg` |
 | 3 | `ligand_prep.sh` | `QM/<mol>.mol2` (or `.xyz`), `QM/<mol>_opt.chg` | `ff/<mol>_resp.*` (prepin, frcmod, pdb) |
-| 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` (not required when `--lgd free`) | `pdb_for_md/<PREFIX>_<LIGAND>_constrained/input_model_{i}.pdb` |
+| 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` (not required when `--lgd free`) | `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/input_model_{i}.pdb` |
 | 5 | `leap.sh` | `ff/<lig>_resp.prepin` (not required with `-l free`), `ff/<lig>_resp.frcmod` (not required with `-l free`), PDB models from Step 4 | `leap/<PREFIX>_<LIGAND>_constrained/cplx_{i}.prmtop/.rst7/.pdb` |
 
 ### 8.11 Dependencies Table
