@@ -10,7 +10,7 @@ DESCRIPTION
   Loads Boltz-2 prediction .cif models into PyMOL, performs system-specific
   modifications (e.g. 5' phosphate removal + terminal hydroxyl capping for
   DNA aptamers), aligns the reference ligand PDB, reassigns chains, and
-  saves ready-for-MD PDB files into pdb_for_md/<SEQ>_<LGD>_constrained/.
+   saves ready-for-MD PDB files into pdb_for_md/<SEQ>_<OUTPUT_LGD>_constrained/.
 
   Two usage modes:
     1. Interactive (from within PyMOL after cd to MD/):
@@ -99,7 +99,7 @@ def prep_model(
         output_lgd = lgd
 
     input_dir = f"../{seq}_{lgd}{suffix}/{job}/boltz_results_input/predictions/input"
-    output_dir = f"pdb_for_md/{seq}_{lgd}{suffix}"
+    output_dir = f"pdb_for_md/{seq}_{output_lgd}{suffix}"
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -177,7 +177,7 @@ def prep_model(
 
     readme_path = os.path.join(output_dir, "README.txt")
     with open(readme_path, "w") as readme_file:
-        readme_file.write(f"Preparation Summary for {seq}_{lgd}{suffix}\n")
+        readme_file.write(f"Preparation Summary for {seq}_{output_lgd}{suffix}\n")
         readme_file.write(f"Job Identifier: {job}\n")
         if has_ligand:
             readme_file.write(f"Ligand Residue Name: {output_lgd}\n")
