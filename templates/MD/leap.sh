@@ -126,6 +126,7 @@ if [ "$ligand" = "free" ]; then
   ligand_upper="free"
 else
   ligand_upper=$(echo "$ligand" | tr '[:lower:]' '[:upper:]')
+  ligand_lower=$(echo "$ligand" | tr '[:upper:]' '[:lower:]')
 fi
 
 # Calculate Cl- for MgCl2 and remaining for NaCl
@@ -145,9 +146,18 @@ source leaprc.water.opc
 EOF
 
 if [ "$ligand" != "free" ]; then
+  # Determine ff file prefix (try uppercase first, fall back to lowercase)
+  if [ -f "ff/${ligand_upper}_resp.prepin" ]; then
+    lgd_ff="$ligand_upper"
+  elif [ -f "ff/${ligand_lower}_resp.prepin" ]; then
+    lgd_ff="$ligand_lower"
+  else
+    echo "Error: ff/${ligand}_resp.prepin not found (tried uppercase and lowercase)"
+    exit 1
+  fi
   cat >> "${leap_subdir}/tleap.in" << EOF
-loadAmberPrep ff/${ligand}_resp.prepin
-loadAmberParams ff/${ligand}_resp.frcmod
+loadAmberPrep ff/${lgd_ff}_resp.prepin
+loadAmberParams ff/${lgd_ff}_resp.frcmod
 EOF
 fi
 
