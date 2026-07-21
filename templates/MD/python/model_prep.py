@@ -135,7 +135,7 @@ def prep_model(
         if has_ligand:
             # Determine the actual ligand residue name in the prediction
             pred_lgd = output_lgd
-            if cmd.count_atoms(f"resn {output_lgd}") == 0 and cmd.count_atoms("resn LIG1") > 0:
+            if cmd.count_atoms(f"input_model_{models[model]} and resn {output_lgd}") == 0 and cmd.count_atoms(f"input_model_{models[model]} and resn LIG1") > 0:
                 pred_lgd = "LIG1"
                 print(f"Ligand '{output_lgd}' not found; using 'LIG1' from prediction.")
 
@@ -171,6 +171,7 @@ def prep_model(
 
         out_path = f"{output_dir}/input_model_{model}.pdb"
         cmd.save(out_path, "seq", -1, "pdb")
+        cmd.delete("seq")
         print(f"Saved modified model to {out_path}\n")
 
     print(f"========All models processed.======== \nOutput files are in {output_dir}.")
