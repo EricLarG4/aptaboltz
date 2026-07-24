@@ -99,7 +99,7 @@ CSS/                        Real usage example (corticosteron-specific aptamers)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  input_file_generator.py                                         │
+│  input_file_generator.py  /  boltz-generate-input                │
 │  sequences + ligands + constraints → YAML + SLURM                │
 │  Outputs:  project/yaml/*.yaml, project/*.slurm                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -113,7 +113,7 @@ CSS/                        Real usage example (corticosteron-specific aptamers)
                                   │
                                   ▼  (copy results back)
 ┌──────────────────────────────────────────────────────────────────┐
-│  output_file_processing.py  (PyMOL + RDKit)                      │
+│  output_file_processing.py  /  boltz-process-output  (PyMOL+R)  │
 │  Alignment, colouring, ligand extraction, chirality, CSV export  │
 │  Outputs:  *.pse, *.sdf, *_chirality.png                         │
 │            *_confidence.csv, *_pae.csv, *_pde.csv, *_plddt.csv   │
@@ -238,13 +238,12 @@ This installs Python 3.10+, NumPy, pandas, natsort, RDKit, PyMOL
 If you already have a Python environment with PyMOL and RDKit:
 
 ```bash
-pip install -e ./boltz2_utils
+pip install ./boltz2_utils
 ```
 
-This makes the following modules importable:
-- `boltz2_utils.process_boltz_results` — prediction output processing
-- `boltz2_utils.generate_boltz2_yaml` — YAML input file generation
-- `boltz2_utils.generate_boltz2_slurm` — SLURM job script generation
+This installs the `boltz2_utils` package and provides two console scripts:
+- `boltz-generate-input` — generate YAML + SLURM input files (see §3)
+- `boltz-process-output` — process prediction outputs (see §5)
 
 ### 1.3 R Environment Setup
 
@@ -342,13 +341,13 @@ This copies all MD pipeline scripts into the correct subdirectories:
 
 **Script:** `templates/input_file_generator.py` → copy to `{project}/`.
 
-Three modes of operation (choose one):
+Four modes of operation (choose one):
 
 | Mode | When to use | Command |
 |------|-------------|---------|
 | **Config file** | Complex projects with many sequences/ligands/constraints | `python input_file_generator.py --config config.json` |
 | **CLI flags** | Quick runs, scripting | `python input_file_generator.py --project my_project --seq Seq1 "ACGT..." --ligand C0R "C0R" --free` |
-| **Console script** | If boltz2_utils is installed via pip | `boltz-generate-input --project my_project --seq Seq1 "ACGT..." --free` |
+| **Console script** | If boltz2_utils is installed via pip | `boltz-generate-input --config config.json` |
 | **Edit-and-run** | Backward compatible — edit variables at top of file | `python input_file_generator.py` |
 
 ### 3.1 Config File Mode (Recommended)
@@ -401,7 +400,11 @@ Sequence entries support the following per-sequence keys:
 Generate files:
 
 ```bash
+# Using the copied template (if boltz2_utils is installed):
 python my_project/input_file_generator.py --config my_config.json
+
+# Or using the console script directly (from any directory):
+boltz-generate-input --config my_config.json
 ```
 
 ### 3.2 CLI Flags Mode
@@ -522,13 +525,13 @@ done
 
 **Script:** `templates/output_file_processing.py` → copy to `{project}/`.
 
-Three modes of operation (choose one):
+Four modes of operation (choose one):
 
 | Mode | When to use | Command |
 |------|-------------|---------|
 | **CLI flags** | Quick runs, scripting | `python output_file_processing.py --project CSS --model CSS1 --ligand-dict '{...}' --name-map '{...}'` |
 | **Config file** | Reusable config for complex projects | `python output_file_processing.py --config config.json` |
-| **Console script** | If boltz2_utils is installed via pip | `boltz-process-output --project CSS --model CSS1 --ligand-dict '{...}' --name-map '{...}'` |
+| **Console script** | If boltz2_utils is installed via pip | `boltz-process-output --config config.json` |
 | **Edit-and-run** | Backward compatible — edit variables at top of file | `python output_file_processing.py` |
 
 **Inputs required:** Boltz-2 prediction output directories (see §4.2).
@@ -536,12 +539,19 @@ Three modes of operation (choose one):
 ### 5.1 CLI Flags Mode
 
 ```bash
+# Using the copied template:
 python output_file_processing.py --project my_project \
     --model Seq1 --model Seq2 \
     --ligand-dict '{"Aptamer1":"L01","Aptamer2":"L02","free":"free"}' \
     --name-map '{"L01":"Aptamer1","L02":"Aptamer2"}' \
     --suffix _constrained "" \
     --job-dirs last
+
+# Or using the console script:
+boltz-process-output --project my_project \
+    --model Seq1 --model Seq2 \
+    --ligand-dict '{"Aptamer1":"L01","Aptamer2":"L02","free":"free"}' \
+    --name-map '{"L01":"Aptamer1","L02":"Aptamer2"}'
 ```
 
 | Flag | Description |
@@ -568,7 +578,11 @@ python output_file_processing.py --project my_project \
 ```
 
 ```bash
+# Using the copied template:
 python output_file_processing.py --config config.json
+
+# Or using the console script:
+boltz-process-output --config config.json
 ```
 
 ### 5.3 Edit-and-Run Mode (Backward Compatible)
