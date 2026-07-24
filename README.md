@@ -46,8 +46,9 @@ templates/                  Project-specific files with PLACEHOLDER_ values
   (root)                      Boltz-2 prediction scripts (§3–§6)
   MD/                         MD parameterisation + production scripts (§8–§9)
   input_file_generator.py     Define sequences, ligands, constraints (§3)
-  input_file_config.json      Example config file for input_file_generator.py
+  input_file_config.json      Example config file for boltz-generate-input
   output_file_processing.py   Python post-processing (§5)
+  output_file_config.json     Example config file for boltz-process-output
   process.R                   R visualisation (§6)
   yaml/                       (placeholder — generated YAML files)
   msa/                        (placeholder — custom MSAs)
@@ -533,6 +534,8 @@ Four modes of operation (choose one):
 | **Config file** | Reusable config for complex projects | `python output_file_processing.py --config config.json` |
 | **Console script** | If boltz2_utils is installed via pip | `boltz-process-output --config config.json` |
 | **Edit-and-run** | Backward compatible — edit variables at top of file | `python output_file_processing.py` |
+
+**Config file template:** `templates/output_file_config.json` → copy to `{project}/`.
 
 **Inputs required:** Boltz-2 prediction output directories (see §4.2).
 
@@ -1621,6 +1624,7 @@ residue number only.
 | `templates/input_file_generator.py` | Edit variables at top of file, or use `--config FILE` / CLI flags (see §3) |
 | `templates/input_file_config.json` | Example config file — fill in your project's sequences, ligands, and params (see §3.1) |
 | `templates/output_file_processing.py` | Edit variables at top of file, or use `--config FILE` / CLI flags (see §5) |
+| `templates/output_file_config.json` | Example config file — fill in your models, ligand dict, and name map (see §5.2) |
 | `templates/process.R` | `project`, `ligand_number` |
 | **MD parameterisation templates** | |
 | `templates/MD/orca_steps_wsl.sh` | ORCA paths, molecule name, charge, multiplicity, solvent |

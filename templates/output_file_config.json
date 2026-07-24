@@ -1,0 +1,14 @@
+{
+    "project": "PLACEHOLDER_PROJECT",
+    "models": ["PLACEHOLDER_MODEL_1", "PLACEHOLDER_MODEL_2"],
+    "lgd_dict": {
+        "free": "free",
+        "PLACEHOLDER_LIGAND_1": "PLACEHOLDER_CCD_1"
+    },
+    "name_map": {
+        "PLACEHOLDER_CCD_1": "PLACEHOLDER_DISPLAY_NAME"
+    },
+    "suffixes": ["_constrained", ""],
+    "job_dirs": "last",
+    "ligand_processing": true
+}
