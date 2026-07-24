@@ -474,76 +474,8 @@ def generate_boltz2_yamls(
     return generated
 
 
-# ── Example usage ─────────────────────────────────────────────────────────────
+# ── CLI entry-point ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    """
-    Example: generate YAML files for a small aptamer project with one
-    sequence and two ligands (one CCD-based, one SMILES-based).
-    """
-
-    SEQUENCES = {
-        "Apt1": "GGGACGACGCCCGCATGTTCCATGGATAGTCTTGACTAGTCGTCCC",
-        "Apt2": "GGGACGACTAGCGTATGCGCCAGAAGTATACGAGGATAGTCGTCCC",
-    }
-
-    LIGANDS = {
-        "free": {"ccd": None, "smiles": None},
-        "L01":  {"ccd": "C0R", "smiles": None},
-        "L02":  {
-            "ccd": None,
-            "smiles": "C1=CC=C2C(=C1)C(=O)C3=C(C2=O)C4=CC=CC=C4C3=O",
-        },
-    }
-
-    entries = [
-        {
-            "seq_name": seq_name,
-            "sequence": sequence,
-            "ligand_name": lig_name,
-            "ccd": lig["ccd"],
-            "smiles": lig["smiles"],
-        }
-        for seq_name, sequence in SEQUENCES.items()
-        for lig_name, lig in LIGANDS.items()
-    ]
-
-    # ── Example: flat-list additional_pairs ────────────────────────────────
-    print("Generating YAML files with flat-list additional_pairs …")
-    paths = generate_boltz2_yamls(
-        entries,
-        output_dir="example_project/yaml",
-        stem_length=8,
-        additional_pairs=[(1, 44), (2, 43)],
-    )
-
-    # ── Example: per-sequence additional_pairs ────────────────────────────
-    print("\nGenerating YAML files with per-sequence additional_pairs …")
-    per_seq_pairs = {
-        "Apt1": [("A", 5, "A", 36)],
-        "Apt2": [("A", 3, "B", 10)],
-    }
-    paths = generate_boltz2_yamls(
-        entries,
-        output_dir="example_project/yaml_per_seq",
-        stem_length=8,
-        additional_pairs=per_seq_pairs,
-    )
-
-    # ── Example: per-sequence + per-ligand with wildcard ─────────────────
-    print("\nGenerating YAML files with per-seq + per-ligand additional_pairs …")
-    per_lig_pairs = {
-        "Apt1": {
-            "free": [("A", 1, "A", 44)],
-            "L01":  [("A", 5, "B", 10)],
-            "*":    [("A", 2, "A", 43)],
-        },
-    }
-    paths = generate_boltz2_yamls(
-        entries,
-        output_dir="example_project/yaml_per_lig",
-        stem_length=8,
-        additional_pairs=per_lig_pairs,
-    )
-
-    print("\nAll examples completed.")
+    from boltz2_utils.cli.generate_input import main
+    main()
