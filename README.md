@@ -43,6 +43,7 @@ templates/                  Project-specific files with PLACEHOLDER_ values
   (root)                      Boltz-2 prediction scripts (§3–§6)
   MD/                         MD parameterisation + production scripts (§8–§9)
   input_file_generator.py     Define sequences, ligands, constraints (§3)
+  input_file_config.json      Example config file for input_file_generator.py
   output_file_processing.py   Python post-processing (§5)
   process.R                   R visualisation (§6)
   yaml/                       (placeholder — generated YAML files)
@@ -141,18 +142,21 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
   - [2.1 Boltz-2 Prediction Project](#21-boltz-2-prediction-project)
   - [2.2 MD Parameterisation Project](#22-md-parameterisation-project)
 - [3. Generating Input Files (YAML + SLURM)](#3-generating-input-files-yaml--slurm)
-  - [3.1 Step-by-Step Editing Guide](#31-step-by-step-editing-guide)
-  - [3.2 Generated Files](#32-generated-files)
+  - [3.1 Config File Mode (Recommended)](#31-config-file-mode-recommended)
+  - [3.2 CLI Flags Mode](#32-cli-flags-mode)
+  - [3.3 Edit-and-Run Mode (Backward Compatible)](#33-edit-and-run-mode-backward-compatible)
+  - [3.4 Generated Files](#34-generated-files)
 - [4. Running Boltz-2 on a Cluster](#4-running-boltz-2-on-a-cluster)
   - [4.1 Files to Transfer](#41-files-to-transfer)
   - [4.2 Expected Outputs (per job)](#42-expected-outputs-per-job)
   - [4.3 Common Submission Patterns](#43-common-submission-patterns)
 - [5. Post-Processing: Python (PyMOL + RDKit)](#5-post-processing-python-pymol--rdkit)
-  - [5.1 Configuration](#51-configuration)
-  - [5.2 Usage](#52-usage)
-  - [5.3 What the Script Does](#53-what-the-script-does)
-  - [5.4 Generated Files](#54-generated-files)
-  - [5.5 Controlling Which Job Directories Are Processed](#55-controlling-which-job-directories-are-processed)
+  - [5.1 CLI Flags Mode](#51-cli-flags-mode)
+  - [5.2 Config File Mode](#52-config-file-mode)
+  - [5.3 Edit-and-Run Mode (Backward Compatible)](#53-edit-and-run-mode-backward-compatible)
+  - [5.4 What the Script Does](#54-what-the-script-does)
+  - [5.5 Generated Files](#55-generated-files)
+  - [5.6 Controlling Which Job Directories Are Processed](#56-controlling-which-job-directories-are-processed)
 - [6. Post-Processing: R Visualisation](#6-post-processing-r-visualisation)
   - [6.1 Minimal Setup](#61-minimal-setup)
   - [6.2 Generated Files](#62-generated-files)
@@ -280,13 +284,24 @@ For each new structure-prediction project (e.g. `my_project`):
    mkdir my_project/msa        # optional — only if using custom MSA
    ```
 
-2. Copy the three Boltz-2 template files:
+2. Choose your workflow:
+
+   **Option A — Config file (recommended):**
+   Copy the generator script and create a JSON config with your sequences
+   and ligands:
+   ```bash
+   cp templates/input_file_generator.py  my_project/
+   ```
+   Then run `python my_project/input_file_generator.py --config config.json`
+   (see [§3.1](#31-config-file-mode-recommended) for the config format).
+
+   **Option B — Edit-and-run (backward compatible):**
+   Copy all three template files and edit the placeholders:
    ```bash
    cp templates/input_file_generator.py     my_project/
    cp templates/output_file_processing.py   my_project/
    cp templates/process.R                   my_project/
    ```
-
    Each file contains `PLACEHOLDER_` values that you replace with your
    project's names and sequences (see [§3](#3-generating-input-files-yaml--slurm)
    through [§6](#6-post-processing-r-visualisation)).
@@ -322,65 +337,109 @@ This copies all MD pipeline scripts into the correct subdirectories:
 
 ## 3. Generating Input Files (YAML + SLURM)
 
-**Script:** `templates/input_file_generator.py` → copy to `{project}/` and edit.
+**Script:** `templates/input_file_generator.py` → copy to `{project}/`.
 
-**Edits required:** `project`, `molecule_type`, `SEQUENCES`, `LIGANDS`,
-`additional_pairs`, `custom_msa`.
+Three modes of operation (choose one):
 
-### 3.1 Step-by-Step Editing Guide
+| Mode | When to use | Command |
+|------|-------------|---------|
+| **Config file** | Complex projects with many sequences/ligands/constraints | `python input_file_generator.py --config config.json` |
+| **CLI flags** | Quick runs, scripting | `python input_file_generator.py --project my_project --seq Seq1 "ACGT..." --ligand C0R "C0R" --free` |
+| **Edit-and-run** | Backward compatible — edit variables at top of file | `python input_file_generator.py` |
 
-**Step 1 — Set project name, molecule type, and sequences:**
+### 3.1 Config File Mode (Recommended)
 
-```python
-project = "my_project"
-molecule_type = "dna"       # "dna", "rna", or "protein"
-SEQUENCES = {
-    "Seq1": "GGGACGACGCCCGCATGTTCCATGGATAGTCTTGACTAGTCGTCCC",
-    "Seq2": "GGGACGACTAGCGTATGCGCCAGAAGTATACGAGGATAGTCGTCCC",
+Create a JSON (or YAML) file with the following structure:
+
+Sequences can be given as plain strings (shared settings) or as dicts with
+per-sequence overrides:
+
+```json
+{
+    "project": "my_project",
+    "molecule_type": "dna",
+    "sequences": {
+        "Seq1": {
+            "sequence": "GGGACGACGCCCGCATGTTCCATGGATAGTCTTGACTAGTCGTCCC",
+            "stem_length": 6
+        },
+        "Seq2": "GGGACGACTAGCGTATGCGCCAGAAGTATACGAGGATAGTCGTCCC"
+    },
+    "stem_length": 8,
+    "max_distance": 4.0,
+    "ligands": {
+        "free": {"ccd": null, "smiles": null},
+        "L01":  {"ccd": "C0R", "smiles": null},
+        "L02":  {"ccd": null, "smiles": "C1=CC=C2C(=C1)C(=O)C3=C(C2=O)C4=CC=CC=C4C3=O"}
+    },
+    "custom_msa": false,
+    "additional_pairs": {"Seq1": [["A", 1, "A", 44]]},
+    "seq_stem_length": {"Seq2": 4}
 }
-stem_length = 8
-max_distance = 4.0           # stem contact distance (Å), DNA/RNA only
 ```
 
-**Step 2 — (Optional) Define contact constraints:**
+In this example:
+- `Seq1` overrides its stem_length to **6** (via the per-sequence dict).
+- `Seq2` is a plain string so it inherits the global `stem_length: 8`, but then
+  the top-level `seq_stem_length` override sets it to **4**.
+- Any remaining sequences would use the global **8**.
 
-Set `additional_pairs` to add extra residue-pair contacts.  Three formats
-are accepted (flat list, per-sequence dict, per-sequence+per-ligand dict
-with `"*"` wildcard).  See [Appendix 11](#11-appendix-contact-constraints-format).
-Set to `None` to omit.
+Sequence entries support the following per-sequence keys:
+| Key | Effect |
+|-----|--------|
+| `"sequence"` | Nucleotide/amino-acid sequence (required) |
+| `"stem_length"` | Per-sequence override of the global `stem_length` |
+| `"max_distance"` | Per-sequence override of the global `max_distance` |
+| `"chain_id"` | Chain identifier (default: `"A"`) |
+| `"ligand_chain"` | Ligand chain identifier (default: `"B"`) |
+| `"cyclic"` | Whether the sequence is cyclic (default: `false`) |
 
-**Step 3 — Define ligands:**
+Generate files:
 
-Each ligand is a dict with `"ccd"` (PDB CCD code) and/or `"smiles"` key:
-
-```python
-LIGANDS = {
-    "free": {"ccd": None, "smiles": None},               # no ligand
-    "L01":  {"ccd": "C0R", "smiles": None},              # CCD-based
-    "L02":  {"ccd": None, "smiles": "C1=CC=C2C(=C1)C(=O)C3=C(C2=O)C4=CC=CC=C4C3=O"},
-}
+```bash
+python my_project/input_file_generator.py --config my_config.json
 ```
 
-**Step 4 — Build entry list:** (automatic — no action required)
+### 3.2 CLI Flags Mode
 
-**Step 5 — Toggle custom MSA:**
-
-```python
-custom_msa = False     # True → place {seq_name}.a3m in {project}/msa/
+```bash
+python input_file_generator.py --project my_project \
+    --molecule-type dna \
+    --seq Seq1 "GGGACGACGCCCGCATGTTCCATGGATAGTCTTGACTAGTCGTCCC" \
+    --seq Seq2 "GGGACGACTAGCGTATGCGCCAGAAGTATACGAGGATAGTCGTCCC" \
+    --ligand L01 "C0R" \
+    --ligand-smiles L02 "C1=CC=C2C(=C1)C(=O)C3=C(C2=O)C4=CC=CC=C4C3=O" \
+    --free \
+    --stem-length 8 \
+    --max-distance 4.0 \
+    --custom-msa
 ```
 
-**Steps 6–7 — Generate files:**
+| Flag | Description |
+|------|-------------|
+| `--project` | Project directory name (required) |
+| `--molecule-type` | `dna` (default), `rna`, or `protein` |
+| `--seq NAME SEQ` | Sequence name and nucleotide sequence (repeatable) |
+| `--seq-stem-length NAME N` | Per-sequence stem_length override (repeatable) |
+| `--ligand NAME CCD` | CCD-based ligand (repeatable) |
+| `--ligand-smiles NAME SMILES` | SMILES-based ligand (repeatable) |
+| `--free` | Include a ligand-free (`free`) entry |
+| `--stem-length N` | Global stem base-pair constraints (default: 8) |
+| `--max-distance F` | Max contact distance in Å (default: 4.0) |
+| `--additional-pairs JSON` | JSON string of contact constraints (see [§11](#11-appendix-contact-constraints-format)) |
+| `--custom-msa` | Enable custom MSA (`.a3m`) files in `{project}/msa/` |
+| `--output-dir DIR` | Output directory (defaults to `{project}`) |
+
+### 3.3 Edit-and-Run Mode (Backward Compatible)
+
+Edit the variables at the top of the copied script (`project`, `SEQUENCES`,
+`LIGANDS`, etc.) and run without arguments:
 
 ```bash
 python my_project/input_file_generator.py
 ```
 
-### 3.2 Generated Files
-
-| Path | Description |
-|------|-------------|
-| `{project}/yaml/*.yaml` | Boltz-2 input files (one per seq × ligand × variant) |
-| `{project}/*.slurm` | SLURM submission scripts (one per YAML file) |
+### 3.4 Generated Files
 
 **Naming conventions:**
 
@@ -390,6 +449,11 @@ python my_project/input_file_generator.py
 | With custom MSA | `Seq1_L01_custom_msa.yaml` / `.slurm` |
 | With contact constraints | `Seq1_L01_constrained.yaml` / `.slurm` |
 | MSA + constraints | `Seq1_L01_custom_msa_constrained.yaml` / `.slurm` |
+
+| Path | Description |
+|------|-------------|
+| `{project}/yaml/*.yaml` | Boltz-2 input files (one per seq × ligand × variant) |
+| `{project}/*.slurm` | SLURM submission scripts (one per YAML file) |
 
 ---
 
@@ -452,33 +516,66 @@ done
 
 ## 5. Post-Processing: Python (PyMOL + RDKit)
 
-**Script:** `templates/output_file_processing.py` → copy to `{project}/` and edit.
+**Script:** `templates/output_file_processing.py` → copy to `{project}/`.
 
-**Edits required:** `project`, `models`, `LGD_DICT`, `NAME_MAP`, `suffixes`.
+Three modes of operation (choose one):
+
+| Mode | When to use | Command |
+|------|-------------|---------|
+| **CLI flags** | Quick runs, scripting | `python output_file_processing.py --project CSS --model CSS1 --ligand-dict '{...}' --name-map '{...}'` |
+| **Config file** | Reusable config for complex projects | `python output_file_processing.py --config config.json` |
+| **Edit-and-run** | Backward compatible — edit variables at top of file | `python output_file_processing.py` |
 
 **Inputs required:** Boltz-2 prediction output directories (see §4.2).
 
-### 5.1 Configuration
+### 5.1 CLI Flags Mode
 
-```python
-# Display name → CCD code (used for reference fetching + chirality labels)
-LGD_DICT = {"Aptamer1": "L01", "Aptamer2": "L02", "free": "free"}
-
-# CCD code → display name (reverse mapping for file naming)
-NAME_MAP = {"L01": "Aptamer1", "L02": "Aptamer2"}
-
-project = "my_project"
-models = ["Seq1", "Seq2"]       # sequence names matching SEQUENCES keys
-suffixes = ["_constrained", ""] # typically both constrained and unconstrained
+```bash
+python output_file_processing.py --project my_project \
+    --model Seq1 --model Seq2 \
+    --ligand-dict '{"Aptamer1":"L01","Aptamer2":"L02","free":"free"}' \
+    --name-map '{"L01":"Aptamer1","L02":"Aptamer2"}' \
+    --suffix _constrained "" \
+    --job-dirs last
 ```
 
-### 5.2 Usage
+| Flag | Description |
+|------|-------------|
+| `--project` | Project directory name (required) |
+| `--model NAME` | Model/sequence name (repeatable) |
+| `--ligand-dict JSON` | Display-name → CCD code mapping |
+| `--name-map JSON` | CCD code → display-name mapping |
+| `--suffix [SUFFIX ...]` | Suffixes to process (default: `_constrained ''`) |
+| `--job-dirs STR` | `last`, `all`, a JID, or JSON list of JIDs (default: `last`) |
+| `--no-ligand-processing` | Skip ligand extraction and chirality analysis |
+
+### 5.2 Config File Mode
+
+```json
+{
+    "project": "my_project",
+    "models": ["Seq1", "Seq2"],
+    "lgd_dict": {"Aptamer1": "L01", "Aptamer2": "L02", "free": "free"},
+    "name_map": {"L01": "Aptamer1", "L02": "Aptamer2"},
+    "suffixes": ["_constrained", ""],
+    "job_dirs": "last"
+}
+```
+
+```bash
+python output_file_processing.py --config config.json
+```
+
+### 5.3 Edit-and-Run Mode (Backward Compatible)
+
+Edit the variables at the top of the copied script (`project`, `models`,
+`LGD_DICT`, `NAME_MAP`, `suffixes`) and run without arguments:
 
 ```bash
 python my_project/output_file_processing.py
 ```
 
-### 5.3 What the Script Does
+### 5.4 What the Script Does
 
 For each (model × ligand × suffix × job-directory) combination:
 
@@ -494,7 +591,7 @@ For each (model × ligand × suffix × job-directory) combination:
 6. **Aggregates metrics** — reads confidence JSON, PAE/PDE NPZ, and pLDDT
    NPZ files; saves as CSV files.
 
-### 5.4 Generated Files
+### 5.5 Generated Files
 
 | File(s) | Description |
 |---------|-------------|
@@ -509,7 +606,7 @@ For each (model × ligand × suffix × job-directory) combination:
 | `{experiment}_{job}_pde.csv` | PDE matrix (one row per residue) |
 | `{experiment}_{job}_plddt.csv` | pLDDT per residue |
 
-### 5.5 Controlling Which Job Directories Are Processed
+### 5.6 Controlling Which Job Directories Are Processed
 
 The `job_dirs` parameter of `process_single_experiment()` accepts:
 
@@ -1499,8 +1596,9 @@ residue number only.
 
 | File | Edits required |
 |------|----------------|
-| `templates/input_file_generator.py` | `project`, `molecule_type`, `SEQUENCES`, `LIGANDS`, `additional_pairs`, `custom_msa` |
-| `templates/output_file_processing.py` | `project`, `models`, `LGD_DICT`, `NAME_MAP`, `suffixes` |
+| `templates/input_file_generator.py` | Edit variables at top of file, or use `--config FILE` / CLI flags (see §3) |
+| `templates/input_file_config.json` | Example config file — fill in your project's sequences, ligands, and params (see §3.1) |
+| `templates/output_file_processing.py` | Edit variables at top of file, or use `--config FILE` / CLI flags (see §5) |
 | `templates/process.R` | `project`, `ligand_number` |
 | **MD parameterisation templates** | |
 | `templates/MD/orca_steps_wsl.sh` | ORCA paths, molecule name, charge, multiplicity, solvent |
