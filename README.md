@@ -30,6 +30,9 @@ Basic protein support is available — see [§7](#7-molecule-type-support).
 
 ```
 boltz2_utils/               Python package (imported by all projects)
+  cli/                        Console-script entry points (installed via pip)
+    generate_input.py           boltz-generate-input command
+    process_output.py           boltz-process-output command
   generate_boltz2_yaml.py     YAML input builder
   generate_boltz2_slurm.py    SLURM script generator
   process_boltz_results.py    Output processing (PyMOL + RDKit)
@@ -345,6 +348,7 @@ Three modes of operation (choose one):
 |------|-------------|---------|
 | **Config file** | Complex projects with many sequences/ligands/constraints | `python input_file_generator.py --config config.json` |
 | **CLI flags** | Quick runs, scripting | `python input_file_generator.py --project my_project --seq Seq1 "ACGT..." --ligand C0R "C0R" --free` |
+| **Console script** | If boltz2_utils is installed via pip | `boltz-generate-input --project my_project --seq Seq1 "ACGT..." --free` |
 | **Edit-and-run** | Backward compatible — edit variables at top of file | `python input_file_generator.py` |
 
 ### 3.1 Config File Mode (Recommended)
@@ -524,6 +528,7 @@ Three modes of operation (choose one):
 |------|-------------|---------|
 | **CLI flags** | Quick runs, scripting | `python output_file_processing.py --project CSS --model CSS1 --ligand-dict '{...}' --name-map '{...}'` |
 | **Config file** | Reusable config for complex projects | `python output_file_processing.py --config config.json` |
+| **Console script** | If boltz2_utils is installed via pip | `boltz-process-output --project CSS --model CSS1 --ligand-dict '{...}' --name-map '{...}'` |
 | **Edit-and-run** | Backward compatible — edit variables at top of file | `python output_file_processing.py` |
 
 **Inputs required:** Boltz-2 prediction output directories (see §4.2).
@@ -1584,6 +1589,9 @@ residue number only.
 | File | Purpose |
 |------|---------|
 | `boltz2_utils/__init__.py` | Package initialisation |
+| `boltz2_utils/cli/__init__.py` | CLI package initialisation |
+| `boltz2_utils/cli/generate_input.py` | CLI entry point: `boltz-generate-input` console script (see §3) |
+| `boltz2_utils/cli/process_output.py` | CLI entry point: `boltz-process-output` console script (see §5) |
 | `boltz2_utils/base.py` | PyMOL styling script (nucleic-acid base colours, protein detection, solvent/ion hiding) |
 | `boltz2_utils/process_boltz_results.py` | PyMOL alignment + colouring, ligand extraction, chirality grid, CSV aggregation (confidence, PAE, PDE, pLDDT) |
 | `boltz2_utils/process_boltz_results_nolgd.py` | Simplified version without ligand processing (legacy) |
