@@ -9,8 +9,12 @@ description = "Utilities for Boltz-2"
 authors = [
     { name = "Eric Largy", email = "eric.largy@u-bordeaux.fr" }
 ]
+[tool.setuptools]
+packages = ["boltz2_utils", "boltz2_utils.cli"]
+
 [tool.setuptools.package-dir]
 "boltz2_utils" = "."
 
-[tool.setuptools.packages]
-find = {}
+[project.scripts]
+boltz-generate-input = "boltz2_utils.cli.generate_input:main"
+boltz-process-output = "boltz2_utils.cli.process_output:main"
