@@ -56,3 +56,4 @@ venv/
 .DS_Store
 Thumbs.db
 boltz.qmd
+.vscode/sftp.json
