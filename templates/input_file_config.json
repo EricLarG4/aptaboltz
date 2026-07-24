@@ -1,0 +1,17 @@
+{
+    "project": "PLACEHOLDER_PROJECT",
+    "molecule_type": "dna",
+    "sequences": {
+        "PLACEHOLDER_SEQ_NAME": {
+            "sequence": "PLACEHOLDER_SEQUENCE",
+            "stem_length": 8
+        }
+    },
+    "ligands": {
+        "free": {"ccd": null, "smiles": null},
+        "PLACEHOLDER_LIGAND_NAME": {"ccd": "PLACEHOLDER_CCD", "smiles": null}
+    },
+    "max_distance": 4.0,
+    "additional_pairs": null,
+    "custom_msa": false
+}
