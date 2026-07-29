@@ -82,7 +82,7 @@ def _plddt_to_color(value):
             f"{int(_PLDDT_GRADIENT[-1][1][2]*255):02x}"
 
 
-def generate_plddt_viewer(cif_path, output_dir):
+def generate_plddt_viewer(cif_path, output_dir, verbose=True):
     """Generate a multi-snapshot .mvsj file with per-model pLDDT colouring.
 
     Produces a single MVSJ file with one snapshot per model.  The Molstar
@@ -99,6 +99,8 @@ def generate_plddt_viewer(cif_path, output_dir):
         Path to the PyMOL-aligned multi-model CIF file.
     output_dir : str
         Directory where the MVSJ is written (also expected to contain the CIF).
+    verbose : bool, default True
+        If False, suppresses status prints to stdout.
     """
     cif_basename = os.path.basename(cif_path)
     cif_stem = os.path.splitext(cif_basename)[0]
@@ -108,24 +110,19 @@ def generate_plddt_viewer(cif_path, output_dir):
     snapshots = []
 
     for model_idx, block in enumerate(doc):
-        # --- Extract per-residue average b-factors for this model ---
+        # --- Extract per-atom b-factors and build colour annotation ---
         chain_col = block.find_values("_atom_site.label_asym_id")
         seq_col = block.find_values("_atom_site.label_seq_id")
+        atom_col = block.find_values("_atom_site.label_atom_id")
         b_col = block.find_values("_atom_site.B_iso_or_equiv")
 
-        residue_bfactors = {}
-        for chain, seq, b in zip(chain_col, seq_col, b_col):
-            key = (str(chain), int(seq))
-            residue_bfactors.setdefault(key, []).append(float(b))
-
-        # --- Compute annotation (pre-computed hex colours) ---
         annotation = []
-        for (chain, seq), b_vals in residue_bfactors.items():
-            avg_b = sum(b_vals) / len(b_vals)
+        for chain, seq, atom, b in zip(chain_col, seq_col, atom_col, b_col):
             annotation.append({
-                "label_asym_id": chain,
-                "label_seq_id": seq,
-                "color": _plddt_to_color(avg_b),
+                "label_asym_id": str(chain),
+                "label_seq_id": int(seq),
+                "label_atom_id": str(atom),
+                "color": _plddt_to_color(float(b)),
             })
 
         ann_bytes = json.dumps(annotation).encode()
@@ -159,17 +156,17 @@ def generate_plddt_viewer(cif_path, output_dir):
         poly_rep.color_from_uri(
             uri=data_uri_ann,
             format="json",
-            schema="residue",
+            schema="atom",
             field_name="color",
         )
 
         # Ligand (small molecules) → ball-and-stick with pLDDT coloring
         lig_comp = ms.component(selector="ligand")
-        lig_rep = lig_comp.representation(type="ball_and_stick")
+        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5)
         lig_rep.color_from_uri(
             uri=data_uri_ann,
             format="json",
-            schema="residue",
+            schema="atom",
             field_name="color",
         )
 
@@ -188,7 +185,8 @@ def generate_plddt_viewer(cif_path, output_dir):
         snapshots=snapshots,
     ))
     mvsj.dump(mvsj_path, indent=2)
-    print(f"  Wrote multi-model pLDDT MVSJ: {mvsj_name}")
+    if verbose:
+        print(f"  Wrote multi-model pLDDT MVSJ: {mvsj_name}")
 
 
 # =====================================================================
@@ -196,7 +194,7 @@ def generate_plddt_viewer(cif_path, output_dir):
 # =====================================================================
 
 
-def generate_constraint_viewer(cif_path, yaml_path, output_path):
+def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
     """Generate a .mvsj file with constraint-component colouring.
 
     Loads contact constraints from the Boltz-2 YAML file, finds connected
@@ -214,10 +212,13 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path):
         Path to the Boltz-2 input YAML file.
     output_path : str
         Destination path for the .mvsj file.
+    verbose : bool, default True
+        If False, suppresses status prints to stdout.
     """
-    constraints = _load_constraints(yaml_path)
+    constraints = _load_constraints(yaml_path, verbose=verbose)
     if not constraints:
-        print("  No constraints found -- skipping constraint MVSJ generation.")
+        if verbose:
+            print("  No constraints found -- skipping constraint MVSJ generation.")
         return
 
     components = _find_connected_components(constraints)
@@ -256,8 +257,20 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path):
         field_name="color",
     )
 
+    # Ligand → ball-and-stick (visible even if unconstrained)
+    lig_comp = ms.component(selector="ligand")
+    lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5)
+    lig_rep.color(color="white")
+    lig_rep.color_from_uri(
+        uri=data_uri,
+        format="json",
+        schema="residue",
+        field_name="color",
+    )
+
     MVSJ(data=b.get_state()).dump(output_path, indent=2)
-    print(f"  Wrote constraint MVSJ: {output_path}")
+    if verbose:
+        print(f"  Wrote constraint MVSJ: {output_path}")
 
 
 # =====================================================================
@@ -265,14 +278,15 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path):
 # =====================================================================
 
 
-def _load_constraints(yaml_path):
+def _load_constraints(yaml_path, verbose=True):
     """Load unique contact constraints from a Boltz-2 YAML file.
 
     Returns ``None`` if the file doesn't exist or the constraints section
     is empty/missing.
     """
     if not os.path.exists(yaml_path):
-        print(f"  YAML file not found: {yaml_path}")
+        if verbose:
+            print(f"  YAML file not found: {yaml_path}")
         return None
 
     with open(yaml_path) as fh:
@@ -280,7 +294,8 @@ def _load_constraints(yaml_path):
 
     constraints_raw = data.get("constraints", [])
     if not constraints_raw:
-        print("  No constraints section found in YAML file.")
+        if verbose:
+            print("  No constraints section found in YAML file.")
         return None
 
     unique_pairs = set()
