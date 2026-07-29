@@ -195,11 +195,11 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
 
 
 def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
-    """Generate a .mvsj file with constraint-component colouring.
+    """Generate a multi-snapshot .mvsj file with constraint-component colouring.
 
     Loads contact constraints from the Boltz-2 YAML file, finds connected
     components (BFS), assigns each component a colour from the pastel
-    palette, and embeds the annotation as a data URI.
+    palette, and creates one snapshot per model.
 
     Unconstrained residues are set to white so the coloured components
     are visually distinct.
@@ -237,40 +237,70 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
     ann_b64 = base64.b64encode(ann_bytes).decode()
     data_uri = f"data:application/json;base64,{ann_b64}"
 
-    # Embed the CIF as a data URI for self-contained MVSJ
-    with open(cif_path, "rb") as fh:
-        cif_bytes = fh.read()
-    cif_b64 = base64.b64encode(cif_bytes).decode()
+    doc = gemmi.cif.read_file(str(cif_path))
+    snapshots = []
 
-    b = mvs.create_builder()
-    ds = b.download(url=f"data:chemical/x-cif;base64,{cif_b64}")
-    ps = ds.parse(format="mmcif")
-    ms = ps.model_structure()
-    comp = ms.component(selector="all")
-    rep = comp.representation(type="cartoon")
+    for model_idx, block in enumerate(doc):
+        # Write single-model CIF to temp file and embed as data URI
+        single_doc = gemmi.cif.Document()
+        single_doc.add_copied_block(block)
+        with tempfile.NamedTemporaryFile(suffix=".cif", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            single_doc.write_file(tmp_path)
+            with open(tmp_path, "rb") as fh:
+                cif_bytes = fh.read()
+        finally:
+            os.unlink(tmp_path)
 
-    rep.color(color="white")
-    rep.color_from_uri(
-        uri=data_uri,
-        format="json",
-        schema="residue",
-        field_name="color",
-    )
+        cif_b64 = base64.b64encode(cif_bytes).decode()
+        cif_data_uri = f"data:chemical/x-cif;base64,{cif_b64}"
 
-    # Ligand → ball-and-stick (visible even if unconstrained)
-    lig_comp = ms.component(selector="ligand")
-    lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5)
-    lig_rep.color(color="white")
-    lig_rep.color_from_uri(
-        uri=data_uri,
-        format="json",
-        schema="residue",
-        field_name="color",
-    )
+        b = mvs.create_builder()
+        ds = b.download(url=cif_data_uri)
+        ps = ds.parse(format="mmcif")
+        ms = ps.model_structure()
 
-    MVSJ(data=b.get_state()).dump(output_path, indent=2)
+        # Backbone (polymer) → cartoon → white
+        back_comp = ms.component(selector="polymer")
+        back_rep = back_comp.representation(type="cartoon")
+        back_rep.color(color="white")
+
+        # Bases (DA, DC, DG, DT) → ball-and-stick → constraint-colored
+        base_comp = ms.component(selector=[
+            {"label_comp_id": "DA"},
+            {"label_comp_id": "DC"},
+            {"label_comp_id": "DG"},
+            {"label_comp_id": "DT"},
+        ])
+        base_rep = base_comp.representation(type="ball_and_stick", size_factor=0.5)
+        base_rep.color(color="white")
+        base_rep.color_from_uri(
+            uri=data_uri,
+            format="json",
+            schema="residue",
+            field_name="color",
+        )
+
+        # Ligand → ball-and-stick → element (CPK) default coloring
+        lig_comp = ms.component(selector="ligand")
+        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5)
+
+        snap = b.get_snapshot(
+            title=f"Model {model_idx}",
+            linger_duration_ms=3000,
+            transition_duration_ms=500,
+        )
+        snapshots.append(snap)
+
+    mvsj_name = os.path.basename(output_path)
+    mvsj = MVSJ(data=States(
+        metadata=GlobalMetadata(title=os.path.splitext(mvsj_name)[0]),
+        snapshots=snapshots,
+    ))
+    mvsj.dump(output_path, indent=2)
     if verbose:
-        print(f"  Wrote constraint MVSJ: {output_path}")
+        print(f"  Wrote multi-model constraint MVSJ: {output_path}")
 
 
 # =====================================================================
