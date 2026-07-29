@@ -12,7 +12,33 @@ import tempfile
 import gemmi
 import yaml
 import molviewspec as mvs
-from molviewspec.nodes import MVSJ, States, GlobalMetadata
+from molviewspec.nodes import MVSJ, States, GlobalMetadata, CategoricalPalette
+
+
+def _apply_preset(data, preset="illustrative"):
+    """Walk an MVSJ dict tree and set ``type = "preset"`` on representation
+    nodes that have a matching ``custom.preset`` value, enabling the Molstar
+    viewer to apply the named Quick Style at render time.
+
+    Parameters
+    ----------
+    data : dict
+        The serialised MVSJ structure (``State`` root or ``Snapshot`` root).
+    preset : str
+        Preset name (e.g. ``"illustrative"``, ``"default"``).
+    """
+    if isinstance(data, dict):
+        if data.get("kind") == "representation":
+            custom = data.get("custom", {})
+            if isinstance(custom, dict) and custom.get("preset") == preset:
+                data["params"]["type"] = "preset"
+        for key in ("children", "root", "snapshots"):
+            child = data.get(key)
+            if child is not None:
+                _apply_preset(child, preset=preset)
+    elif isinstance(data, list):
+        for item in data:
+            _apply_preset(item, preset=preset)
 
 
 # Pastel colours for constraint components (hex approximation of PyMOL names)
@@ -150,9 +176,11 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
 
-        # Polymer (DNA) → cartoon with pLDDT coloring
+        # Polymer (DNA) → cartoon with pLDDT coloring + illustrative preset
         poly_comp = ms.component(selector="polymer")
-        poly_rep = poly_comp.representation(type="cartoon")
+        poly_rep = poly_comp.representation(
+            type="cartoon",
+        )
         poly_rep.color_from_uri(
             uri=data_uri_ann,
             format="json",
@@ -177,20 +205,20 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
         )
         snapshots.append(snap)
 
-    # --- Combine into multi-state MVSJ ---
     mvsj_name = f"{cif_stem}_plddt.mvsj"
     mvsj_path = os.path.join(output_dir, mvsj_name)
-    mvsj = MVSJ(data=States(
+    states = States(
         metadata=GlobalMetadata(title=f"{cif_stem} pLDDT"),
         snapshots=snapshots,
-    ))
-    mvsj.dump(mvsj_path, indent=2)
+    )
+    states_dict = states.model_dump(exclude_none=True)
+    _apply_preset(states_dict)
+    with open(mvsj_path, "w") as fh:
+        json.dump(states_dict, fh, indent=2)
     if verbose:
         print(f"  Wrote multi-model pLDDT MVSJ: {mvsj_name}")
 
-
-# =====================================================================
-#  Constraint viewer
+    
 # =====================================================================
 
 
@@ -261,30 +289,28 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
 
-        # Backbone (polymer) → cartoon → white
-        back_comp = ms.component(selector="polymer")
-        back_rep = back_comp.representation(type="cartoon")
-        back_rep.color(color="white")
-
-        # Bases (DA, DC, DG, DT) → ball-and-stick → constraint-colored
-        base_comp = ms.component(selector=[
-            {"label_comp_id": "DA"},
-            {"label_comp_id": "DC"},
-            {"label_comp_id": "DG"},
-            {"label_comp_id": "DT"},
-        ])
-        base_rep = base_comp.representation(type="ball_and_stick", size_factor=0.5)
-        base_rep.color(color="white")
-        base_rep.color_from_uri(
+        # Polymer → cartoon → white + constraint coloring + illustrative preset
+        poly_comp = ms.component(selector="all")
+        poly_rep = poly_comp.representation(
+            type="cartoon",
+        )
+        poly_rep.color(color="white")
+        poly_rep.color_from_uri(
             uri=data_uri,
             format="json",
             schema="residue",
             field_name="color",
         )
 
-        # Ligand → ball-and-stick → element (CPK) default coloring
+        # Ligand → ball-and-stick → element (CPK) coloring
         lig_comp = ms.component(selector="ligand")
         lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5)
+        lig_rep.color_from_source(
+            schema="atom",
+            category_name="_atom_site",
+            field_name="type_symbol",
+            palette=CategoricalPalette(colors="ElementSymbol"),
+        )
 
         snap = b.get_snapshot(
             title=f"Model {model_idx}",
@@ -294,11 +320,14 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
         snapshots.append(snap)
 
     mvsj_name = os.path.basename(output_path)
-    mvsj = MVSJ(data=States(
+    states = States(
         metadata=GlobalMetadata(title=os.path.splitext(mvsj_name)[0]),
         snapshots=snapshots,
-    ))
-    mvsj.dump(output_path, indent=2)
+    )
+    states_dict = states.model_dump(exclude_none=True)
+    _apply_preset(states_dict)
+    with open(output_path, "w") as fh:
+        json.dump(states_dict, fh, indent=2)
     if verbose:
         print(f"  Wrote multi-model constraint MVSJ: {output_path}")
 
