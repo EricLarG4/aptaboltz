@@ -49,6 +49,7 @@ def process_experiment(
     LGD_DICT=None,
     NAME_MAP=None,
     ligand_processing=True,
+    generate_mvsj=True,
 ):
     """
     Load Boltz-2 CIF predictions into PyMOL, align structures, apply
@@ -132,7 +133,33 @@ def process_experiment(
         f"Saved pLDDT colored PyMOL session: {experiment_path}{model}_{experiment}_plddt.pse\n"
     )
 
-    # 7. Ligand extraction and chirality visualisation
+    # 7. Mol* web viewer generation (MVSJ files for quarto-molstar)
+    if generate_mvsj:
+        from boltz2_utils.generate_web_viewer import (
+            generate_plddt_viewer,
+            generate_constraint_viewer,
+        )
+
+        mvsj_base = f"{experiment_path}{model}_{experiment}"
+
+        # pLDDT viewer
+        generate_plddt_viewer(
+            f"{experiment_path}{model}_{experiment}.cif",
+            f"{mvsj_base}_plddt.mvsj",
+        )
+
+        # Constraint viewer (only for constrained experiments)
+        if constraints:
+            yaml_path = f"{project}/yaml/{model}.yaml"
+            generate_constraint_viewer(
+                f"{experiment_path}{model}_{experiment}.cif",
+                yaml_path,
+                f"{mvsj_base}_constraints.mvsj",
+            )
+
+        print()
+
+    # 8. Ligand extraction and chirality visualisation
     if ligand_processing:
         # 7a. Determine aptamer and ligand from model name
         apt = model.split("_")[0]
@@ -576,6 +603,7 @@ def process_single_experiment(
     NAME_MAP=None,
     ligand_processing=True,
     job_dirs=None,
+    generate_mvsj=True,
 ):
     """
     Find J-directories for an experiment and delegate to process_boltz_results.
@@ -656,6 +684,7 @@ def process_single_experiment(
             LGD_DICT=LGD_DICT,
             NAME_MAP=NAME_MAP,
             ligand_processing=ligand_processing,
+            generate_mvsj=generate_mvsj,
         )
 
         # 6. If prediction JSON directory exists, aggregate confidence/PAE/PDE/pLDDT
