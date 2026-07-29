@@ -8,9 +8,10 @@ import json
 import os
 import base64
 
+import gemmi
 import yaml
 import molviewspec as mvs
-from molviewspec.nodes import MVSJ, ContinuousPalette
+from molviewspec.nodes import MVSJ
 
 
 # Pastel colours for constraint components (hex approximation of PyMOL names)
@@ -43,53 +44,124 @@ CONSTRAINT_COLORS = [
 ]
 
 
+# pLDDT gradient matching PyMOL "tv_red yelloworange palecyan density"
+_PLDDT_GRADIENT = [
+    (50.0, (1.0, 0.0, 0.0)),        # tv_red
+    (63.3, (1.0, 0.647, 0.0)),      # yelloworange
+    (76.6, (0.686, 0.933, 0.933)),  # palecyan
+    (90.0, (0.878, 1.0, 1.0)),      # density
+]
+
+_PLDDT_MIN = 50.0
+_PLDDT_MAX = 90.0
+
+
 # =====================================================================
 #  pLDDT viewer
 # =====================================================================
 
 
-def generate_plddt_viewer(cif_path, output_path):
-    """Generate a .mvsj file with b-factor (pLDDT) colouring.
+def _plddt_to_color(value):
+    """Map a single pLDDT score (0-100) to a hex colour via the gradient.
 
-    Uses ``color_from_source`` to read the ``_atom_site.B_iso_or_equiv``
-    field and map it through a continuous gradient matching the PyMOL
-    *tv_red -> yelloworange -> palecyan -> density* spectrum, with the
-    range clamped to [50, 90].
+    Values outside [50, 90] are clamped to the nearest stop.
+    """
+    x = max(_PLDDT_MIN, min(value, _PLDDT_MAX))
+    for i in range(len(_PLDDT_GRADIENT) - 1):
+        x0, (r0, g0, b0) = _PLDDT_GRADIENT[i]
+        x1, (r1, g1, b1) = _PLDDT_GRADIENT[i + 1]
+        if x0 <= x <= x1:
+            t = (x - x0) / (x1 - x0) if x1 != x0 else 0.0
+            r = int((r0 + t * (r1 - r0)) * 255)
+            g = int((g0 + t * (g1 - g0)) * 255)
+            b = int((b0 + t * (b1 - b0)) * 255)
+            return f"#{r:02x}{g:02x}{b:02x}"
+    return f"#{int(_PLDDT_GRADIENT[-1][1][0]*255):02x}" \
+            f"{int(_PLDDT_GRADIENT[-1][1][1]*255):02x}" \
+            f"{int(_PLDDT_GRADIENT[-1][1][2]*255):02x}"
+
+
+def generate_plddt_viewer(cif_path, output_dir):
+    """Generate per-model .mvsj files with b-factor (pLDDT) colouring.
+
+    Each model from the multi-model CIF gets its own individual CIF and
+    MVSJ file.  pLDDT scores are read from ``_atom_site.B_iso_or_equiv``,
+    averaged per residue, and pre-computed into hex colours embedded via
+    a ``color_from_uri`` data URI.
+
+    Files are written to *output_dir* with the naming pattern::
+
+        {cif_stem}_model_{N}.cif
+        {cif_stem}_plddt_model_{N}.mvsj
 
     Parameters
     ----------
     cif_path : str
         Path to the PyMOL-aligned multi-model CIF file.
-    output_path : str
-        Destination path for the .mvsj file.
+    output_dir : str
+        Directory where per-model CIFs and MVSJs are written.
     """
-    cif_filename = os.path.basename(cif_path)
+    cif_basename = os.path.basename(cif_path)
+    cif_stem = os.path.splitext(cif_basename)[0]
 
-    b = mvs.create_builder()
-    ds = b.download(url=cif_filename)
-    ps = ds.parse(format="cif")
-    ms = ps.model_structure()
-    comp = ms.component(selector="all")
-    rep = comp.representation(type="cartoon")
+    doc = gemmi.cif.read_file(str(cif_path))
 
-    rep.color_from_source(
-        schema="atom",
-        category_name="atom_site",
-        field_name="B_iso_or_equiv",
-        palette=ContinuousPalette(
-            colors=[
-                ("#FF0000", 50.0),    # tv_red
-                ("#FFA500", 63.3),    # yelloworange
-                ("#AFEEEE", 76.6),    # palecyan
-                ("#E0FFFF", 90.0),    # density
-            ],
-            mode="absolute",
-            value_domain=(50.0, 90.0),
-        ),
-    )
+    for model_idx, block in enumerate(doc):
+        # --- Extract per-residue average b-factors for this model ---
+        chain_col = block.find_values("_atom_site.label_asym_id")
+        seq_col = block.find_values("_atom_site.label_seq_id")
+        b_col = block.find_values("_atom_site.B_iso_or_equiv")
 
-    MVSJ(data=b.get_state()).dump(output_path, indent=2)
-    print(f"  Wrote pLDDT MVSJ: {output_path}")
+        residue_bfactors = {}
+        for chain, seq, b in zip(chain_col, seq_col, b_col):
+            key = (str(chain), int(seq))
+            residue_bfactors.setdefault(key, []).append(float(b))
+
+        # --- Compute annotation (pre-computed hex colours) ---
+        annotation = []
+        for (chain, seq), b_vals in residue_bfactors.items():
+            avg_b = sum(b_vals) / len(b_vals)
+            annotation.append({
+                "label_asym_id": chain,
+                "label_seq_id": seq,
+                "color": _plddt_to_color(avg_b),
+            })
+
+        # --- Write individual (single-model) CIF ---
+        model_cif_name = f"{cif_stem}_model_{model_idx}.cif"
+        model_cif_path = os.path.join(output_dir, model_cif_name)
+        single_doc = gemmi.cif.Document()
+        single_doc.add_copied_block(block)
+        single_doc.write_file(model_cif_path)
+
+        # Read CIF bytes back for embedding in MVSJ
+        with open(model_cif_path, "rb") as fh:
+            cif_bytes = fh.read()
+        cif_b64 = base64.b64encode(cif_bytes).decode()
+
+        # --- Build MVSJ with data-URI annotation ---
+        ann_bytes = json.dumps(annotation).encode()
+        ann_b64 = base64.b64encode(ann_bytes).decode()
+        data_uri_ann = f"data:application/json;base64,{ann_b64}"
+
+        b = mvs.create_builder()
+        ds = b.download(url=f"data:chemical/x-cif;base64,{cif_b64}")
+        ps = ds.parse(format="mmcif")
+        ms = ps.model_structure()
+        comp = ms.component(selector="all")
+        rep = comp.representation(type="cartoon")
+
+        rep.color_from_uri(
+            uri=data_uri_ann,
+            format="json",
+            schema="residue",
+            field_name="color",
+        )
+
+        mvsj_name = f"{cif_stem}_plddt_model_{model_idx}.mvsj"
+        mvsj_path = os.path.join(output_dir, mvsj_name)
+        MVSJ(data=b.get_state()).dump(mvsj_path, indent=2)
+        print(f"  Wrote pLDDT MVSJ:     {mvsj_name}")
 
 
 # =====================================================================
@@ -137,11 +209,14 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path):
     ann_b64 = base64.b64encode(ann_bytes).decode()
     data_uri = f"data:application/json;base64,{ann_b64}"
 
-    cif_filename = os.path.basename(cif_path)
+    # Embed the CIF as a data URI for self-contained MVSJ
+    with open(cif_path, "rb") as fh:
+        cif_bytes = fh.read()
+    cif_b64 = base64.b64encode(cif_bytes).decode()
 
     b = mvs.create_builder()
-    ds = b.download(url=cif_filename)
-    ps = ds.parse(format="cif")
+    ds = b.download(url=f"data:chemical/x-cif;base64,{cif_b64}")
+    ps = ds.parse(format="mmcif")
     ms = ps.model_structure()
     comp = ms.component(selector="all")
     rep = comp.representation(type="cartoon")

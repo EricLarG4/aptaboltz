@@ -142,10 +142,10 @@ def process_experiment(
 
         mvsj_base = f"{experiment_path}{model}_{experiment}"
 
-        # pLDDT viewer
+        # pLDDT viewer (per-model MVSJs with individual CIFs)
         generate_plddt_viewer(
             f"{experiment_path}{model}_{experiment}.cif",
-            f"{mvsj_base}_plddt.mvsj",
+            experiment_path,
         )
 
         # Constraint viewer (only for constrained experiments)
