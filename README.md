@@ -37,6 +37,7 @@ boltz2_utils/               Python package (imported by all projects)
   generate_boltz2_slurm.py    SLURM script generator
   process_boltz_results.py    Output processing (PyMOL + RDKit)
   base.py                     PyMOL base styling
+  generate_web_viewer.py      Mol* web viewer (MVSJ) generation
 
 boltz_R_utils/              R scripts (sourced by all projects)
   processor.R                 Confidence, PAE, PDE, pLDDT reading + plotting
@@ -612,6 +613,18 @@ For each (model × ligand × suffix × job-directory) combination:
    and draws an annotated grid PNG.
 6. **Aggregates metrics** — reads confidence JSON, PAE/PDE NPZ, and pLDDT
    NPZ files; saves as CSV files.
+7. **Generates Mol* web viewer files** — produces MVSJ (MolViewSpec JSON)
+   files for interactive 3D visualisation in the
+   [Mol* web viewer](https://molstar.org/viewer/), providing an alternative
+   to PyMOL sessions.  Two viewers are created:
+   - **pLDDT viewer** — one snapshot per model with per-atom pLDDT
+     colouring; switch between models in the viewer's state gallery.
+   - **Constraint viewer** — (constrained experiments only) pastel-coloured
+     connected components with one snapshot per model.
+
+   The MVSJ generation is implemented in
+   `boltz2_utils/generate_web_viewer.py`, which is called inline from
+   `process_boltz_results.py` (step 7 of `process_experiment()`).
 
 ### 5.5 Generated Files
 
@@ -627,6 +640,8 @@ For each (model × ligand × suffix × job-directory) combination:
 | `{experiment}_{job}_pae.csv` | PAE matrix (one row per residue) |
 | `{experiment}_{job}_pde.csv` | PDE matrix (one row per residue) |
 | `{experiment}_{job}_plddt.csv` | pLDDT per residue |
+| `{experiment}_{job}_plddt.mvsj` | Multi-snapshot Mol* viewer (pLDDT-coloured) |
+| `{experiment}_{job}_constraints.mvsj` | Multi-snapshot Mol* viewer (constraint-coloured, constrained experiments only) |
 
 ### 5.6 Controlling Which Job Directories Are Processed
 
