@@ -7,11 +7,12 @@ via the quarto-molstar extension.
 import json
 import os
 import base64
+import tempfile
 
 import gemmi
 import yaml
 import molviewspec as mvs
-from molviewspec.nodes import MVSJ
+from molviewspec.nodes import MVSJ, States, GlobalMetadata
 
 
 # Pastel colours for constraint components (hex approximation of PyMOL names)
@@ -82,29 +83,29 @@ def _plddt_to_color(value):
 
 
 def generate_plddt_viewer(cif_path, output_dir):
-    """Generate per-model .mvsj files with b-factor (pLDDT) colouring.
+    """Generate a multi-snapshot .mvsj file with per-model pLDDT colouring.
 
-    Each model from the multi-model CIF gets its own individual CIF and
-    MVSJ file.  pLDDT scores are read from ``_atom_site.B_iso_or_equiv``,
-    averaged per residue, and pre-computed into hex colours embedded via
-    a ``color_from_uri`` data URI.
+    Produces a single MVSJ file with one snapshot per model.  The Molstar
+    viewer displays a state gallery allowing the user to switch between
+    models while preserving pLDDT colouring.
 
     Files are written to *output_dir* with the naming pattern::
 
-        {cif_stem}_model_{N}.cif
-        {cif_stem}_plddt_model_{N}.mvsj
+        {cif_stem}_plddt.mvsj
 
     Parameters
     ----------
     cif_path : str
         Path to the PyMOL-aligned multi-model CIF file.
     output_dir : str
-        Directory where per-model CIFs and MVSJs are written.
+        Directory where the MVSJ is written (also expected to contain the CIF).
     """
     cif_basename = os.path.basename(cif_path)
     cif_stem = os.path.splitext(cif_basename)[0]
 
     doc = gemmi.cif.read_file(str(cif_path))
+
+    snapshots = []
 
     for model_idx, block in enumerate(doc):
         # --- Extract per-residue average b-factors for this model ---
@@ -127,25 +128,28 @@ def generate_plddt_viewer(cif_path, output_dir):
                 "color": _plddt_to_color(avg_b),
             })
 
-        # --- Write individual (single-model) CIF ---
-        model_cif_name = f"{cif_stem}_model_{model_idx}.cif"
-        model_cif_path = os.path.join(output_dir, model_cif_name)
-        single_doc = gemmi.cif.Document()
-        single_doc.add_copied_block(block)
-        single_doc.write_file(model_cif_path)
-
-        # Read CIF bytes back for embedding in MVSJ
-        with open(model_cif_path, "rb") as fh:
-            cif_bytes = fh.read()
-        cif_b64 = base64.b64encode(cif_bytes).decode()
-
-        # --- Build MVSJ with data-URI annotation ---
         ann_bytes = json.dumps(annotation).encode()
         ann_b64 = base64.b64encode(ann_bytes).decode()
         data_uri_ann = f"data:application/json;base64,{ann_b64}"
 
+        # --- Write single-model CIF to temp file and embed as data URI ---
+        single_doc = gemmi.cif.Document()
+        single_doc.add_copied_block(block)
+        with tempfile.NamedTemporaryFile(suffix=".cif", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            single_doc.write_file(tmp_path)
+            with open(tmp_path, "rb") as fh:
+                cif_bytes = fh.read()
+        finally:
+            os.unlink(tmp_path)
+
+        cif_b64 = base64.b64encode(cif_bytes).decode()
+        cif_data_uri = f"data:chemical/x-cif;base64,{cif_b64}"
+
+        # --- Build per-model snapshot ---
         b = mvs.create_builder()
-        ds = b.download(url=f"data:chemical/x-cif;base64,{cif_b64}")
+        ds = b.download(url=cif_data_uri)
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
         comp = ms.component(selector="all")
@@ -158,10 +162,22 @@ def generate_plddt_viewer(cif_path, output_dir):
             field_name="color",
         )
 
-        mvsj_name = f"{cif_stem}_plddt_model_{model_idx}.mvsj"
-        mvsj_path = os.path.join(output_dir, mvsj_name)
-        MVSJ(data=b.get_state()).dump(mvsj_path, indent=2)
-        print(f"  Wrote pLDDT MVSJ:     {mvsj_name}")
+        snap = b.get_snapshot(
+            title=f"Model {model_idx}",
+            linger_duration_ms=3000,
+            transition_duration_ms=500,
+        )
+        snapshots.append(snap)
+
+    # --- Combine into multi-state MVSJ ---
+    mvsj_name = f"{cif_stem}_plddt.mvsj"
+    mvsj_path = os.path.join(output_dir, mvsj_name)
+    mvsj = MVSJ(data=States(
+        metadata=GlobalMetadata(title=f"{cif_stem} pLDDT"),
+        snapshots=snapshots,
+    ))
+    mvsj.dump(mvsj_path, indent=2)
+    print(f"  Wrote multi-model pLDDT MVSJ: {mvsj_name}")
 
 
 # =====================================================================
