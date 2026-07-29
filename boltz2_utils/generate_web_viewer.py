@@ -172,6 +172,7 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
 
         # --- Build per-model snapshot ---
         b = mvs.create_builder()
+        b.canvas(custom={"molstar_postprocessing": {"enable_outline": True, "enable_ssao": False}})
         ds = b.download(url=cif_data_uri)
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
@@ -180,6 +181,7 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
         poly_comp = ms.component(selector="polymer")
         poly_rep = poly_comp.representation(
             type="cartoon",
+            custom={"molstar_representation_params": {"ignoreLight": True}},
         )
         poly_rep.color_from_uri(
             uri=data_uri_ann,
@@ -190,7 +192,7 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
 
         # Ligand (small molecules) → ball-and-stick with pLDDT coloring
         lig_comp = ms.component(selector="ligand")
-        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5)
+        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5, custom={"molstar_representation_params": {"ignoreLight": True}})
         lig_rep.color_from_uri(
             uri=data_uri_ann,
             format="json",
@@ -212,7 +214,6 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
         snapshots=snapshots,
     )
     states_dict = states.model_dump(exclude_none=True)
-    _apply_preset(states_dict)
     with open(mvsj_path, "w") as fh:
         json.dump(states_dict, fh, indent=2)
     if verbose:
@@ -285,14 +286,16 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
         cif_data_uri = f"data:chemical/x-cif;base64,{cif_b64}"
 
         b = mvs.create_builder()
+        b.canvas(custom={"molstar_postprocessing": {"enable_outline": True, "enable_ssao": False}})
         ds = b.download(url=cif_data_uri)
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
 
-        # Polymer → cartoon → white + constraint coloring + illustrative preset
+        # Polymer → cartoon → white + constraint coloring + illustrative style
         poly_comp = ms.component(selector="all")
         poly_rep = poly_comp.representation(
             type="cartoon",
+            custom={"molstar_representation_params": {"ignoreLight": True}},
         )
         poly_rep.color(color="white")
         poly_rep.color_from_uri(
@@ -304,7 +307,7 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
 
         # Ligand → ball-and-stick → element (CPK) coloring
         lig_comp = ms.component(selector="ligand")
-        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5)
+        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5, custom={"molstar_representation_params": {"ignoreLight": True}})
         lig_rep.color_from_source(
             schema="atom",
             category_name="_atom_site",
@@ -325,7 +328,6 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
         snapshots=snapshots,
     )
     states_dict = states.model_dump(exclude_none=True)
-    _apply_preset(states_dict)
     with open(output_path, "w") as fh:
         json.dump(states_dict, fh, indent=2)
     if verbose:
