@@ -152,10 +152,21 @@ def generate_plddt_viewer(cif_path, output_dir):
         ds = b.download(url=cif_data_uri)
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
-        comp = ms.component(selector="all")
-        rep = comp.representation(type="cartoon")
 
-        rep.color_from_uri(
+        # Polymer (DNA) → cartoon with pLDDT coloring
+        poly_comp = ms.component(selector="polymer")
+        poly_rep = poly_comp.representation(type="cartoon")
+        poly_rep.color_from_uri(
+            uri=data_uri_ann,
+            format="json",
+            schema="residue",
+            field_name="color",
+        )
+
+        # Ligand (small molecules) → ball-and-stick with pLDDT coloring
+        lig_comp = ms.component(selector="ligand")
+        lig_rep = lig_comp.representation(type="ball_and_stick")
+        lig_rep.color_from_uri(
             uri=data_uri_ann,
             format="json",
             schema="residue",
