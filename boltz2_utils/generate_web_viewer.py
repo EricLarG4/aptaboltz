@@ -1,7 +1,8 @@
 """Mol* Web Viewer generation for Boltz-2 prediction outputs.
 
 Produces MolViewSpec JSON (.mvsj) files for interactive 3D visualisation
-via the quarto-molstar extension.
+in the Mol* web viewer (https://molstar.org/viewer/), providing an
+alternative to PyMOL-based visualisation.
 """
 
 import json
@@ -12,33 +13,7 @@ import tempfile
 import gemmi
 import yaml
 import molviewspec as mvs
-from molviewspec.nodes import MVSJ, States, GlobalMetadata, CategoricalPalette
-
-
-def _apply_preset(data, preset="illustrative"):
-    """Walk an MVSJ dict tree and set ``type = "preset"`` on representation
-    nodes that have a matching ``custom.preset`` value, enabling the Molstar
-    viewer to apply the named Quick Style at render time.
-
-    Parameters
-    ----------
-    data : dict
-        The serialised MVSJ structure (``State`` root or ``Snapshot`` root).
-    preset : str
-        Preset name (e.g. ``"illustrative"``, ``"default"``).
-    """
-    if isinstance(data, dict):
-        if data.get("kind") == "representation":
-            custom = data.get("custom", {})
-            if isinstance(custom, dict) and custom.get("preset") == preset:
-                data["params"]["type"] = "preset"
-        for key in ("children", "root", "snapshots"):
-            child = data.get(key)
-            if child is not None:
-                _apply_preset(child, preset=preset)
-    elif isinstance(data, list):
-        for item in data:
-            _apply_preset(item, preset=preset)
+from molviewspec.nodes import States, GlobalMetadata, CategoricalPalette
 
 
 # Pastel colours for constraint components (hex approximation of PyMOL names)
@@ -111,9 +86,9 @@ def _plddt_to_color(value):
 def generate_plddt_viewer(cif_path, output_dir, verbose=True):
     """Generate a multi-snapshot .mvsj file with per-model pLDDT colouring.
 
-    Produces a single MVSJ file with one snapshot per model.  The Molstar
-    viewer displays a state gallery allowing the user to switch between
-    models while preserving pLDDT colouring.
+    Produces a single MVSJ file with one snapshot per model.  The Mol*
+    web viewer displays a state gallery allowing the user to switch
+    between models while preserving pLDDT colouring.
 
     Files are written to *output_dir* with the naming pattern::
 
@@ -177,7 +152,7 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
 
-        # Polymer (DNA) → cartoon with pLDDT coloring + illustrative preset
+        # Polymer (DNA) → cartoon with pLDDT coloring + illustrative style
         poly_comp = ms.component(selector="polymer")
         poly_rep = poly_comp.representation(
             type="cartoon",

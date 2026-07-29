@@ -20,6 +20,7 @@ pip install -e ./boltz2_utils
 | `process_boltz_results.py` | Post-process predictions: aligned PyMOL sessions, ligand SDF/PNG, confidence/PAE/PDE/pLDDT CSV tables |
 | `process_boltz_results_nolgd.py` | Variant of the above for ligand-free (apo) predictions |
 | `base.py` | PyMOL base styling and colour scheme (imported by the processing scripts) |
+| `generate_web_viewer.py` | Generate MolViewSpec JSON (.mvsj) files for interactive 3D visualisation in the Mol* web viewer (alternative to PyMOL sessions) |
 
 ## Usage examples
 
