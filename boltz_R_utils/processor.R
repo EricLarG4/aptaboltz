@@ -29,13 +29,17 @@ library(bslib)
 #  Confidence table: read aggregated CSVs, parse dict columns, reorder
 # =====================================================================
 
-process_confidence <- function(project) {
+process_confidence <- function(project, keep = NULL) {
   # Read all *confidence.csv files under *project* into a single data.table.
   #
   # Columns containing JSON-like dict strings (e.g. `chains_ptm`,
   # `pair_chains_iptm`) are parsed and expanded into one column per chain
   # (e.g. `chains_ptm_chain0`, `chains_ptm_chain1`).  The original dict
   # columns are removed.
+  #
+  # If *keep* is provided (character vector of "model/experiment" strings
+  # such as "CSS1_free_constrained/J1123595"), only rows matching those
+  # combinations are retained.
   #
   # Returns a data.table with columns ordered:
   #     base (model, experiment, id) -> metrics -> chain-specific columns.
@@ -95,7 +99,13 @@ process_confidence <- function(project) {
     confidence_dt[, (col) := NULL]
   }
 
-  # 4. Reorder columns so base identifiers come first,
+  # 4. Optional row-filtering to keep only specified experiments
+  if (!is.null(keep)) {
+    confidence_dt <- confidence_dt[paste0(model, "/", experiment) %in% keep]
+    confidence_dt[, id := .I]
+  }
+
+  # 5. Reorder columns so base identifiers come first,
   #    then metric columns, then chain-specific expansions
   all_cols <- names(confidence_dt)
   base_cols <- c("model", "experiment", "id", "confidence_score", "ptm")
@@ -129,10 +139,13 @@ process_confidence <- function(project) {
 #  Render interactive confidence table (DT) and save as HTML
 # =====================================================================
 
-table_confidence <- function(confidence_dt) {
+table_confidence <- function(confidence_dt, project = get("project", parent.frame())) {
   # Build an interactive DT::datatable with colour-bar styling, wrap it in
   # a Bootstrap 5 theme (bslib), and save the result as an HTML file in the
   # project directory.
+  #
+  # *project* is used only for the HTML save path and defaults to the
+  # variable `project` from the calling environment (backward-compatible).
   #
   # Styling rules:
   #   - `Smaller is better` metrics (PAE, PDE, IPDE) get a horizontal bar
@@ -295,7 +308,9 @@ melt_pxe <- function(pxe) {
 #  Plot PAE / PDE heatmap faceted by model
 # =====================================================================
 
-plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL) {
+plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL,
+                     width = 12, height = 12, dpi = 300,
+                     show_title = TRUE, show_subtitle = TRUE) {
   # Generate and save faceted PAE or PDE heatmaps, one PNG per region.
   #
   # If *ligand_number* is provided, the matrix is split into three regions:
@@ -313,7 +328,7 @@ plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL) {
   # Extract model / experiment from the list name
   model <- gsub("/.*", "", title)
   experiment <- gsub(".*/", "", title)
-  title <- paste0(model, " [", experiment, "]")
+  title <- paste0(model, "_", experiment)
   cat(paste0("Plotting ", toupper(type), " matrices for ", title, "...\n"))
 
   data_to_plot <- melt_pxe(pxe[[1]])
@@ -383,8 +398,8 @@ plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL) {
           )
         ) +
         labs(
-          title = title,
-          subtitle = paste0("Region: ", r)
+          title = if (show_title) title else NULL,
+          subtitle = if (show_subtitle) paste0("Region: ", r) else NULL
         )
 
       # 4. Save to PNG
@@ -399,8 +414,9 @@ plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL) {
       ggsave(
         plot = pxe_plot,
         filename = paste0(plot_file_path, plot_file_name),
-        width = 12,
-        height = 10
+        width = width,
+        height = height,
+        dpi = dpi
       )
       pxe_plot
     }
@@ -412,7 +428,9 @@ plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL) {
 #  pLDDT per-residue line plots
 # =====================================================================
 
-plot_plddt <- function(project) {
+plot_plddt <- function(project,
+                       width = 12, height = 12, dpi = 300,
+                       show_title = TRUE, show_subtitle = TRUE) {
   # Generate pLDDT per-residue line plots for each experiment, faceted by
   # model (5 columns).
   #
@@ -530,7 +548,7 @@ plot_plddt <- function(project) {
           legend.ticks = element_line(colour = 'white', linewidth = 1)
         ) +
         labs(
-          title = {
+          title = if (show_title) {
             title <- paste0("pLDDT per residue for ", seq_name)
             if (lgd_name != 'free' & lgd_name != 'Free') {
               title <- paste0(title, " + ", lgd_name)
@@ -541,8 +559,8 @@ plot_plddt <- function(project) {
               title <- paste0(title, " [", rst, "]")
             }
             title
-          },
-          subtitle = job,
+          } else NULL,
+          subtitle = if (show_subtitle) job else NULL,
           x = "Residue",
           y = "pLDDT"
         )
@@ -563,10 +581,11 @@ plot_plddt <- function(project) {
       ggsave(
         filename = paste0(
           project, "/", seq_name, "_", lgd_name, rst, "/", job, "/",
-          seq_name, "_", lgd_name, "_", rst, "_plddt.png"
+          seq_name, "_", lgd_name, rst, "_plddt.png"
         ),
-        width = 12,
-        height = 10
+        width = width,
+        height = height,
+        dpi = dpi
       )
     }
   )
