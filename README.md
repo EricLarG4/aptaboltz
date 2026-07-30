@@ -680,14 +680,16 @@ pae_dt <- process_pxe(project, type = "pae")
 pde_dt <- process_pxe(project, type = "pde")
 
 lapply(names(pae_dt), function(n) {
-    plot_pxe(pae_dt[n], type = "pae", ligand_number = 47)
+    plot_pxe(pae_dt[n], type = "pae", ligand_number = 47,
+             width = 12, height = 12, dpi = 300)
 })
 lapply(names(pde_dt), function(n) {
-    plot_pxe(pde_dt[n], type = "pde", ligand_number = 47)
+    plot_pxe(pde_dt[n], type = "pde", ligand_number = 47,
+             width = 12, height = 12, dpi = 300)
 })
 
 # 3. pLDDT per-residue plots
-plot_plddt(project)
+plot_plddt(project, width = 12, height = 12, dpi = 300)
 ```
 
 Set `ligand_number` to the residue index at which the ligand region begins
@@ -707,11 +709,11 @@ aptamer → `ligand_number = 47`.
 
 | Function | Input | Output |
 |----------|-------|--------|
-| `process_confidence()` | All `*_confidence.csv` files | `data.table`, one row per model |
-| `table_confidence()` | The returned `data.table` | HTML file `confidence_table.html` |
+| `process_confidence(project, keep = NULL)` | All `*_confidence.csv` files | `data.table`, one row per model; `keep` filters to specific `model/experiment` pairs |
+| `table_confidence(confidence_dt, project)` | The returned `data.table` | HTML file `confidence_table.html` |
 | `process_pxe(type=...)` | All `*_pae.csv` or `*_pde.csv` files | Named list of `data.table`s (one per experiment) |
-| `plot_pxe()` | One element from `process_pxe()` | Faceted PNG per region (DNA / Ligand) |
-| `plot_plddt()` | All `*_plddt.csv` files in project | Faceted line-plot PNG per experiment |
+| `plot_pxe(pxe, type, ..., width, height, dpi, show_title, show_subtitle)` | One element from `process_pxe()` | Faceted PNG per region (DNA / Ligand); optional size, DPI, and title control |
+| `plot_plddt(project, ..., width, height, dpi, show_title, show_subtitle)` | All `*_plddt.csv` files in project | Faceted line-plot PNG per experiment; optional size, DPI, and title control |
 
 ---
 
