@@ -1,10 +1,11 @@
 """
-PyMOL visualisation utilities for MD minimisation outputs.
+PyMOL & Mol* visualisation utilities for MD minimisation outputs.
 
-Provides reusable functions for loading, aligning, and colouring
-structures produced by the Amber MD pipeline (§9).  Designed to be
-copied into each project via ``cp -r templates/MD/*`` and imported
-by project-specific entry-point scripts.
+Provides reusable functions for loading, aligning, colouring, and
+generating interactive Web viewer files (MVSJ) from structures
+produced by the Amber MD pipeline (§9).  Designed to be copied into
+each project via ``cp -r templates/MD/*`` and imported by
+project-specific entry-point scripts.
 
 Functions
 ---------
@@ -23,10 +24,19 @@ color_constrained_residues(constraints)
     connected-component palette.  Automatically falls back to
     residue-number-only selection when chain IDs are absent.
 
+find_minimized_pdbs(job_dir)
+    Discover stripped PDB files in a job's task directories.
+
+generate_minimized_viewer(project, experiment, job)
+    Generate a multi-snapshot Mol* viewer (.mvsj) for minimised
+    structures, with DNA bases coloured by type.
+
 Dependencies
 ------------
 - PyMOL (with Python API, e.g. ``pymol-open-source``)
 - PyYAML (``pyyaml``)
+- Gemmi (``gemmi``)
+- MolViewSpec (``molviewspec``)
 
 Usage
 -----
@@ -42,12 +52,25 @@ Or use individual functions::
     constraints = load_constraints("CSS", "Seq1_C0R_constrained")
     if constraints:
         color_constrained_residues(constraints)
+
+Generate a Mol* viewer::
+
+    from pymol_utils import generate_minimized_viewer
+    generate_minimized_viewer("CSS", "CSS1_free_constrained", "J1129505")
 """
 
+import base64
+import json
 import os
+import tempfile
 
+import gemmi
+import molviewspec as mvs
+from molviewspec.nodes import States, GlobalMetadata
 import yaml
-from pymol import cmd, util
+# PyMOL is imported lazily inside functions that use it (process_final_min,
+# color_constrained_residues) so that generate_minimized_viewer and other
+# non-PyMOL utilities can be imported without a PyMOL installation.
 
 
 # =====================================================================
@@ -154,6 +177,8 @@ def color_constrained_residues(constraints):
         List of ``((chain_i, res_i), (chain_j, res_j))`` pairs as returned
         by :func:`load_constraints`.
     """
+    from pymol import cmd
+
     # 1. Build adjacency graph: each residue node -> neighbours
     graph = {}
     for (node1, node2) in constraints:
@@ -250,6 +275,8 @@ def process_final_min(project, experiment, job):
     job : str
         Job identifier (e.g. ``"J1234567"``).
     """
+    from pymol import cmd, util
+
     final_min_path = f"{project}/MD/pmemd/out/{experiment}/{job}"
 
     # --- Discover task directories ------------------------------------
@@ -347,3 +374,288 @@ def process_final_min(project, experiment, job):
     )
     cmd.save(constraints_path)
     print(f"Saved constraint session to {constraints_path}")
+
+
+# =====================================================================
+#  DNA base colours (Mol* web viewer)
+# =====================================================================
+
+# Matches the PyMOL colour scheme used in process_final_min.
+_BASE_COLORS = {
+    "A": "#ADD8E6",  # lightblue
+    "C": "#DDA0DD",  # plum
+    "G": "#D2B48C",  # tan
+    "T": "#90EE90",  # lightgreen
+}
+
+_NON_NUCLEIC_COLOR = "#E0E0E0"  # light grey for non-DNA residues
+
+# Amber (and PDB) nucleic residue name → single-letter base.
+_RESIDUE_BASE = {
+    "DA": "A", "DA5": "A", "DA3": "A",
+    "DC": "C", "DC5": "C", "DC3": "C",
+    "DG": "G", "DG5": "G", "DG3": "G",
+    "DT": "T", "DT5": "T", "DT3": "T",
+    "DI": "G",
+    "A": "A", "A5": "A", "A3": "A",
+    "C": "C", "C5": "C", "C3": "C",
+    "G": "G", "G5": "G", "G3": "G",
+    "U": "T", "U5": "T", "U3": "T",
+}
+
+
+def _resolve_base(resname):
+    """Return single-letter base code (A, C, G, T) or None."""
+    return _RESIDUE_BASE.get(resname.strip())
+
+
+# =====================================================================
+#  MVSJ viewer for minimised structures
+# =====================================================================
+
+
+def find_minimized_pdbs(job_dir):
+    """Return sorted list of stripped PDB paths under *job_dir*.
+
+    Scans ``task_*/final_min/pdb/`` sub-directories for files ending
+    with ``_stripped.pdb``.
+    """
+    paths = []
+    for task in sorted(os.listdir(job_dir)):
+        task_pdb = os.path.join(job_dir, task, "final_min", "pdb")
+        if not os.path.isdir(task_pdb):
+            continue
+        for f in sorted(os.listdir(task_pdb)):
+            if f.endswith("_stripped.pdb"):
+                paths.append(os.path.join(task_pdb, f))
+    return paths
+
+
+# Terminal 5'/3' residue name mapping (Amber naming → standard gemmi names)
+# so that gemmi classifies them as DNA polymer instead of unknown.
+_TERMINAL_RENAME = {
+    "DG5": "DG", "DG3": "DG",
+    "DA5": "DA", "DA3": "DA",
+    "DT5": "DT", "DT3": "DT",
+    "DC5": "DC", "DC3": "DC",
+}
+
+# Calm uniform color for DNA cartoon
+_DNA_COLOR = "#e1e9ef"
+
+# Flashy color for ligand carbon atoms
+_LIGAND_CARBON_COLOR = "#f5e507"
+
+# Element colors (CPK-like) for ligand atoms — carbon excluded (uses _LIGAND_CARBON_COLOR)
+_ELEMENT_COLORS = {
+    "H":  "#FFFFFF",
+    "O":  "#FF0000",
+    "N":  "#3050F8",
+    "P":  "#FFA500",
+    "S":  "#FFD700",
+    "F":  "#00FF00",
+    "Cl": "#00FF00",
+    "Br": "#A52A2A",
+    "I":  "#800080",
+    "Mg": "#20B2AA",
+    "Na": "#B0B0FF",
+}
+
+
+def _write_minimized_mvsj(pdb_paths, output_path, verbose=True):
+    """Core: build and write a multi-snapshot MVSJ from the given PDBs.
+
+    Parameters
+    ----------
+    pdb_paths : list of str
+        Paths to stripped PDB files, one per task.
+    output_path : str
+        Destination path for the .mvsj file.
+    verbose : bool
+    """
+    snapshots = []
+
+    for pdb_path in pdb_paths:
+        structure = gemmi.read_structure(str(pdb_path))
+
+        # Fix blank chain IDs so the annotation matches the embedded PDB
+        for model in structure:
+            for chain in model:
+                if not chain.name.strip():
+                    chain.name = "A"
+
+        # Rename terminal residues so gemmi classifies them as DNA
+        for model in structure:
+            for chain in model:
+                for residue in chain:
+                    new_name = _TERMINAL_RENAME.get(residue.name)
+                    if new_name:
+                        residue.name = new_name
+
+        # Remove ions (Na+, Cl-, etc.) — they are distracting in the viewer
+        ion_names = {"NA", "CL", "Na+", "Cl-", "NA+", "CL-", "NA2+"}
+        for model in structure:
+            for chain in list(model):
+                for i in range(len(chain) - 1, -1, -1):
+                    if chain[i].name.strip() in ion_names:
+                        del chain[i]
+                if len(chain) == 0:
+                    model.remove_chain(chain)
+
+        # Build atom-level colour annotation for non-polymer residues
+        # (ligands, MG, etc.): carbon atoms → flashy color, others → element color
+        lig_annotation = []
+        for model in structure:
+            for chain in model:
+                chain_id = chain.name.strip()
+                for residue in chain:
+                    info = gemmi.find_tabulated_residue(residue.name)
+                    is_nucleic = (
+                        info is not None
+                        and info.kind in (gemmi.ResidueKind.DNA, gemmi.ResidueKind.RNA)
+                    )
+                    if is_nucleic:
+                        continue
+                    for atom in residue:
+                        elem = atom.element.name
+                        color = (
+                            _LIGAND_CARBON_COLOR
+                            if elem == "C"
+                            else _ELEMENT_COLORS.get(elem, "#CCCCCC")
+                        )
+                        lig_annotation.append({
+                            "label_asym_id": chain_id,
+                            "label_seq_id": residue.seqid.num,
+                            "label_atom_id": atom.name.strip(),
+                            "color": color,
+                        })
+
+        if lig_annotation:
+            ann_bytes = json.dumps(lig_annotation).encode()
+            ann_b64 = base64.b64encode(ann_bytes).decode()
+            ann_uri = f"data:application/json;base64,{ann_b64}"
+
+        # Write fixed structure to temp PDB and embed as data URI
+        with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            structure.write_pdb(tmp_path)
+            with open(tmp_path, "rb") as fh:
+                pdb_bytes = fh.read()
+        finally:
+            os.unlink(tmp_path)
+
+        pdb_b64 = base64.b64encode(pdb_bytes).decode()
+        pdb_uri = f"data:chemical/x-pdb;base64,{pdb_b64}"
+
+        # --- Build MVSJ snapshot ---
+        b = mvs.create_builder()
+        b.canvas(custom={
+            "molstar_postprocessing": {
+                "enable_outline": True,
+                "enable_ssao": False,
+            },
+        })
+        ds = b.download(url=pdb_uri)
+        ps = ds.parse(format="pdb")
+        ms = ps.model_structure()
+
+        # Polymer (DNA) → cartoon with uniform calm color
+        poly = ms.component(selector="polymer")
+        poly_rep = poly.representation(
+            type="cartoon",
+            custom={"molstar_representation_params": {"ignoreLight": True}},
+        )
+        poly_rep.color(color=_DNA_COLOR)
+
+        # Non-polymer (ligands, MG) → ball-and-stick with atom-level coloring
+        lig = ms.component(selector="ligand")
+        lig_rep = lig.representation(
+            type="ball_and_stick",
+            size_factor=0.5,
+            custom={"molstar_representation_params": {"ignoreLight": True}},
+        )
+        if lig_annotation:
+            lig_rep.color_from_uri(
+                uri=ann_uri,
+                format="json",
+                schema="atom",
+                field_name="color",
+            )
+
+        # Snapshot title = task directory name
+        task_dir = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(pdb_path))))
+        snap = b.get_snapshot(
+            title=task_dir,
+            linger_duration_ms=3000,
+            transition_duration_ms=500,
+        )
+        snapshots.append(snap)
+
+    mvsj_basename = os.path.basename(output_path)
+    states = States(
+        metadata=GlobalMetadata(title=os.path.splitext(mvsj_basename)[0]),
+        snapshots=snapshots,
+    )
+    states_dict = states.model_dump(exclude_none=True)
+    with open(output_path, "w") as fh:
+        json.dump(states_dict, fh, indent=2)
+    if verbose:
+        print(f"  Wrote MD minimised MVSJ: {output_path}")
+
+
+def generate_minimized_viewer(project, experiment, job, verbose=True):
+    """Generate a multi-snapshot .mvsj file from Amber MD minimised PDBs.
+
+    Colours DNA bases by type matching the PyMOL session colours:
+    - Adenine → lightblue
+    - Cytosine → plum
+    - Guanine → tan
+    - Thymine → lightgreen
+
+    Non-nucleic residues (ions) are shown in light grey.
+
+    The MVSJ file is written to the job directory with the name::
+
+        {experiment}_{job}_final_min.mvsj
+
+    Parameters
+    ----------
+    project : str
+        Project directory name (e.g. ``"CSS"``, ``"PQ4"``).
+    experiment : str
+        Experiment name (e.g. ``"CSS1_free_constrained"``).
+    job : str
+        Job identifier (e.g. ``"J1129505"``).
+    verbose : bool, default True
+        If False, suppresses status prints.
+    """
+    job_dir = os.path.join(project, "MD", "pmemd", "out", experiment, job)
+    pdb_paths = find_minimized_pdbs(job_dir)
+
+    if not pdb_paths:
+        if verbose:
+            print(f"  No stripped PDBs found in {job_dir}")
+        return
+
+    output_path = os.path.join(job_dir, f"{experiment}_{job}_final_min.mvsj")
+    _write_minimized_mvsj(pdb_paths, output_path, verbose)
+
+
+# =====================================================================
+#  CLI entry point
+# =====================================================================
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate Mol* viewer (.mvsj) for Amber MD minimised structures.",
+    )
+    parser.add_argument("project", help="Project directory name (e.g. CSS, PQ4)")
+    parser.add_argument("experiment", help="Experiment name (e.g. CSS1_free_constrained)")
+    parser.add_argument("job", help="Job identifier (e.g. J1129505)")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress status output")
+
+    args = parser.parse_args()
+    generate_minimized_viewer(args.project, args.experiment, args.job, verbose=not args.quiet)

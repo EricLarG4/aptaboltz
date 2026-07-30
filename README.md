@@ -1576,6 +1576,7 @@ by project-specific entry-point scripts (e.g. `final_min_pymol.py`).
 | `process_final_min(project, experiment, job)` | Load stripped PDB files from the final-minimisation stage, align all models, apply base/element colouring, and save a `.pse` session.  Then reset nucleic acids to white and overlay constraint-coloured residues for a second `.pse` session. |
 | `load_constraints(project, experiment)` | Parse contact constraints from the experiment's YAML file.  Returns deduplicated residue-pair tuples or `None` if the experiment is not constrained. |
 | `color_constrained_residues(constraints)` | Build a graph from constraint pairs, find connected components via BFS, and assign each component a unique colour from the `CONSTRAINT_COLORS` palette.  Automatically falls back to residue-number-only selection when chain IDs are absent in the PDB. |
+| `generate_minimized_viewer(project, experiment, job)` | Generate a multi-snapshot Mol* web viewer file (.mvsj) for the minimised structures, with DNA bases coloured by type (A→lightblue, C→plum, G→tan, T→lightgreen).  Produces one snapshot per task replicate with illustrative-style cartoon rendering + outline. |
 
 #### Usage
 
@@ -1604,6 +1605,42 @@ for exp in sorted(os.listdir(output_root)):
         process_final_min("my_project", exp, job)
 ```
 
+#### Mol* Web Viewer Generation
+
+The same colour scheme is exposed as an interactive 3D viewer via the
+**Mol*** web viewer (https://molstar.org/viewer/), providing an
+alternative to PyMOL sessions:
+
+```python
+from pymol_utils import generate_minimized_viewer
+
+# Single job
+generate_minimized_viewer("CSS", "CSS1_free_constrained", "J1129505")
+
+# All jobs in a project
+import os
+output_root = "CSS/MD/pmemd/out"
+for exp in sorted(os.listdir(output_root)):
+    for job in os.listdir(os.path.join(output_root, exp)):
+        generate_minimized_viewer("CSS", exp, job)
+```
+
+Or via the command line:
+
+```bash
+python python/pymol_utils.py CSS CSS1_free_constrained J1129505
+```
+
+The output is a single `.mvsj` file per job at:
+
+```
+{project}/MD/pmemd/out/{experiment}/{job}/{experiment}_{job}_final_min.mvsj
+```
+
+Each snapshot corresponds to one task (replicate), with base-coloured
+nucleic acids, light-grey ions, cartoon rendering, and the same
+illustrative-style outline as the Boltz-2 Mol* viewers (§5.4 step 7).
+
 #### Chain-ID Fallback
 
 PDB files produced by Amber's `ambpdb` often have blank chain IDs, while
@@ -1629,6 +1666,7 @@ residue number only.
 | `boltz2_utils/process_boltz_results_nolgd.py` | Simplified version without ligand processing (legacy) |
 | `boltz2_utils/generate_boltz2_yaml.py` | YAML input builder: stem contacts, additional constraints, MSA integration, molecule-type support |
 | `boltz2_utils/generate_boltz2_slurm.py` | SLURM script generator (one per YAML file) |
+| `boltz2_utils/generate_web_viewer.py` | MolViewSpec JSON (.mvsj) generator for interactive 3D visualisation in the Mol* web viewer (alternative to PyMOL sessions) |
 | `boltz_R_utils/install_packages.R` | One-time R + conda setup |
 | `boltz_R_utils/processor.R` | Confidence/PAE/PDE/pLDDT reading, melting, plotting |
 
@@ -1656,7 +1694,7 @@ residue number only.
 | `templates/MD/pmemd/in/step1.in` … `step10.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5); no manual editing needed. The `archive/` directory holds previous versions |
 | `templates/MD/pmemd/in/final_min.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5) |
 | `templates/MD/python/generate_md_slurm.py` | `experiment`, `array`, `scratchdir`, `gpu`, `residues`, `solvent` — generates a configured `.slurm` from `PrepAndMin.slurm` (§9.2) |
-| `templates/MD/python/pymol_utils.py` | No edits required — reusable functions imported by project scripts (§9.11) |
+| `templates/MD/python/pymol_utils.py` | No edits required — reusable functions imported by project scripts; also generates Mol* viewer (.mvsj) files as an interactive alternative to PyMOL sessions (§9.11) |
 | `templates/MD/slurm/PrepAndMin.slurm` | Template with `__PLACEHOLDER__` markers; used by `generate_md_slurm.py` (§9.1) |
 
 ---
