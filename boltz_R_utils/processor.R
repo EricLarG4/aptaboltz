@@ -9,11 +9,11 @@
 #   - pLDDT per-residue line plots (ggplot2)
 #
 # Entry-point functions (called from a project-specific process.R):
-#   process_confidence(project)  -> data.table
-#   table_confidence(dt)         -> DT::datatable (side effect: saves HTML)
-#   process_pxe(project, type)   -> named list of data.tables
-#   plot_pxe(pxe, type, ...)     -> list of ggplot2 objects (side effect: saves PNGs)
-#   plot_plddt(project)          -> list of ggplot2 objects (side effect: saves PNGs)
+#   process_confidence(project, keep = NULL)  -> data.table
+#   table_confidence(confidence_dt, project)   -> DT::datatable (side effect: saves HTML)
+#   process_pxe(project, type)                 -> named list of data.tables
+#   plot_pxe(pxe, type, ...)                   -> list of ggplot2 objects (side effect: saves PNGs)
+#   plot_plddt(project, ...)                   -> list of ggplot2 objects (side effect: saves PNGs)
 
 
 library(data.table)
@@ -139,7 +139,8 @@ process_confidence <- function(project, keep = NULL) {
 #  Render interactive confidence table (DT) and save as HTML
 # =====================================================================
 
-table_confidence <- function(confidence_dt, project = get("project", parent.frame())) {
+table_confidence <- function(confidence_dt, project = get("project", parent.frame()),
+                             page_length = NULL) {
   # Build an interactive DT::datatable with colour-bar styling, wrap it in
   # a Bootstrap 5 theme (bslib), and save the result as an HTML file in the
   # project directory.
@@ -214,7 +215,7 @@ table_confidence <- function(confidence_dt, project = get("project", parent.fram
     filter = 'top',
     class = 'display cell-border stripe hover compact',
     options = list(
-      pageLength = max(confidence_dt$id),
+      pageLength = if (is.null(page_length)) max(confidence_dt$id) else page_length,
       scrollX = TRUE,
       dom = 'Bfrtip',
       buttons = c('copy', 'csv', 'excel', 'print'),
@@ -323,6 +324,11 @@ plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL,
   # PAE uses the khroma `nuuk` scale; PDE uses reversed `batlowW` scale.
   #
   # Returns a list of ggplot objects (invisible).  Saves PNGs as a side effect.
+  #
+  # Pass *width*, *height*, *dpi* to control output PNG dimensions / resolution
+  # (default 12, 12, 300).  Set *show_title* or *show_subtitle* to FALSE to
+  # suppress the automatic title / subtitle (useful in documents with figure
+  # captions).
   title <- names(pxe)
 
   # Extract model / experiment from the list name
@@ -440,7 +446,10 @@ plot_plddt <- function(project,
   #   3. Plots a line + colour-point trace of pLDDT vs. residue per model.
   #
   # Returns a list of ggplot objects (invisible).  Saves PNGs as a side effect.
-
+  #
+  # Pass *width*, *height*, *dpi* to control output PNG dimensions / resolution
+  # (default 12, 12, 300).  Set *show_title* or *show_subtitle* to FALSE to
+  # suppress the automatic title / subtitle.
   # 1. Find all pLDDT CSV files
   plddt_files <- list.files(
     path = paste0(project),
