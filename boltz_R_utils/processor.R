@@ -10,7 +10,8 @@
 #
 # Entry-point functions (called from a project-specific process.R):
 #   process_confidence(project, keep = NULL)  -> data.table
-#   table_confidence(confidence_dt, project)   -> DT::datatable (side effect: saves HTML)
+#   table_confidence(confidence_dt, project, page_length, element_id)
+#                                          -> DT::datatable (side effect: saves HTML)
 #   process_pxe(project, type)                 -> named list of data.tables
 #   plot_pxe(pxe, type, ...)                   -> list of ggplot2 objects (side effect: saves PNGs)
 #   plot_plddt(project, ...)                   -> list of ggplot2 objects (side effect: saves PNGs)
@@ -140,13 +141,15 @@ process_confidence <- function(project, keep = NULL) {
 # =====================================================================
 
 table_confidence <- function(confidence_dt, project = get("project", parent.frame()),
-                             page_length = NULL) {
+                             page_length = NULL, element_id = "confidence_table") {
   # Build an interactive DT::datatable with colour-bar styling, wrap it in
   # a Bootstrap 5 theme (bslib), and save the result as an HTML file in the
   # project directory.
   #
   # *project* is used only for the HTML save path and defaults to the
   # variable `project` from the calling environment (backward-compatible).
+  # *element_id* is passed to DT::datatable() so the htmlwidget gets a
+  # stable, unique DOM id (avoids collisions with auto-generated ids).
   #
   # Styling rules:
   #   - `Smaller is better` metrics (PAE, PDE, IPDE) get a horizontal bar
@@ -214,6 +217,7 @@ table_confidence <- function(confidence_dt, project = get("project", parent.fram
     extensions = 'Buttons',
     filter = 'top',
     class = 'display cell-border stripe hover compact',
+    elementId = element_id,
     options = list(
       pageLength = if (is.null(page_length)) max(confidence_dt$id) else page_length,
       scrollX = TRUE,
@@ -393,7 +397,8 @@ plot_pxe <- function(pxe, type = c("pae", "pde"), ligand_number = NULL,
           legend.title = element_text(size = 18, face = "bold"),
           legend.text = element_text(size = 16),
           legend.position = 'bottom',
-          legend.ticks = element_line(colour = 'white', linewidth = 1)
+          legend.ticks = element_line(colour = 'white', linewidth = 1),
+          plot.background = element_rect(fill = 'white', colour = NA)
         ) +
         guides(
           fill = guide_colorbar(
@@ -554,7 +559,8 @@ plot_plddt <- function(project,
           plot.subtitle = element_text(size = 16, face = "italic"),
           strip.text = element_text(size = 20, face = "bold"),
           legend.position = 'none',
-          legend.ticks = element_line(colour = 'white', linewidth = 1)
+          legend.ticks = element_line(colour = 'white', linewidth = 1),
+          plot.background = element_rect(fill = 'white', colour = NA)
         ) +
         labs(
           title = if (show_title) {
