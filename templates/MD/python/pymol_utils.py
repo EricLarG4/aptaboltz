@@ -29,7 +29,9 @@ find_minimized_pdbs(job_dir)
 
 generate_minimized_viewer(project, experiment, job)
     Generate a multi-snapshot Mol* viewer (.mvsj) for minimised
-    structures, with DNA bases coloured by type.
+    structures, with DNA bases coloured by type. Each snapshot is
+    titled "model N" (the short identifier derived from the task
+    directory name).
 
 Dependencies
 ------------
@@ -462,7 +464,7 @@ _ELEMENT_COLORS = {
 }
 
 
-def _write_minimized_mvsj(pdb_paths, output_path, verbose=True):
+def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None):
     """Core: build and write a multi-snapshot MVSJ from the given PDBs.
 
     Parameters
@@ -472,6 +474,9 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True):
     output_path : str
         Destination path for the .mvsj file.
     verbose : bool
+    title : str | None
+        Display title for the MVSJ metadata. Defaults to the output
+        basename without extension.
     """
     snapshots = []
 
@@ -583,10 +588,10 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True):
                 field_name="color",
             )
 
-        # Snapshot title = task directory name
+        # Snapshot title = short model identifier (e.g. "model 0")
         task_dir = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(pdb_path))))
         snap = b.get_snapshot(
-            title=task_dir,
+            title=f"model {task_dir.split('_')[-1]}",
             linger_duration_ms=3000,
             transition_duration_ms=500,
         )
@@ -594,7 +599,7 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True):
 
     mvsj_basename = os.path.basename(output_path)
     states = States(
-        metadata=GlobalMetadata(title=os.path.splitext(mvsj_basename)[0]),
+        metadata=GlobalMetadata(title=title or os.path.splitext(mvsj_basename)[0]),
         snapshots=snapshots,
     )
     states_dict = states.model_dump(exclude_none=True)
@@ -639,7 +644,20 @@ def generate_minimized_viewer(project, experiment, job, verbose=True):
         return
 
     output_path = os.path.join(job_dir, f"{experiment}_{job}_final_min.mvsj")
-    _write_minimized_mvsj(pdb_paths, output_path, verbose)
+
+    # Neat display title (e.g. "CSS1 · HCY bound") instead of the raw
+    # {experiment}_{job}_final_min directory-style name
+    if "free" in experiment:
+        label = "Free"
+    elif "HCY" in experiment:
+        label = "HCY bound"
+    elif "PQ" in experiment:
+        label = "PQ bound"
+    else:
+        label = experiment
+    mvs_title = f"{experiment.split('_')[0]} \u00B7 {label}"
+
+    _write_minimized_mvsj(pdb_paths, output_path, verbose, title=mvs_title)
 
 
 # =====================================================================
