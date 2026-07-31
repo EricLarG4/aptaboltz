@@ -267,6 +267,181 @@ table_confidence <- function(confidence_dt, project = get("project", parent.fram
 
 
 # =====================================================================
+#  Constraint verification: read per-model CSVs, render per-sequence DT
+# =====================================================================
+
+process_constraints <- function(project, keep = NULL) {
+  # Read all *_constraints.csv files under *project* into a single
+  # data.table, adding 'model' and 'experiment' columns from the directory
+  # path and deriving 'sequence' and 'condition' labels from the model name
+  # (e.g. CSS1_free_constrained -> sequence "CSS1", condition "Free").
+  #
+  # If *keep* is provided (character vector of "model/experiment" strings
+  # such as "CSS1_free_constrained/J1123595"), only matching rows are kept.
+  #
+  # Returns a data.table ordered by sequence -> condition -> model.
+  constraint_files <- list.files(
+    path = project,
+    pattern = "_constraints\\.csv",
+    recursive = TRUE,
+    full.names = TRUE
+  )
+
+  constraint_dt <- lapply(constraint_files, function(x) {
+    dt <- fread(x)
+    dt[, c("model_name", "experiment") := tstrsplit(
+      gsub(paste0(project, "/"), "", dirname(x)),
+      "/",
+      fixed = TRUE
+    )]
+    dt
+  }) |>
+    rbindlist(fill = TRUE)
+
+  if (nrow(constraint_dt) == 0) {
+    return(constraint_dt)
+  }
+
+  # Derive sequence and condition labels from the model name
+  model_base <- sub("_constrained$", "", constraint_dt$model_name)
+  cond_raw <- sub("^[^_]+_", "", model_base)
+  cond_map <- c(
+    free = "Free",
+    hcy = "HCY",
+    piperaquine = "Piperaquine",
+    `11dc` = "11DC",
+    c0r = "C0R"
+  )
+  cond_key <- tolower(cond_raw)
+  constraint_dt[, condition := ifelse(
+    cond_key %in% names(cond_map),
+    unname(cond_map[cond_key]),
+    cond_raw
+  )]
+  constraint_dt[, sequence := sub("_.*$", "", model_base)]
+
+  if (!is.null(keep)) {
+    constraint_dt <- constraint_dt[paste0(model_name, "/", experiment) %in% keep]
+  }
+
+  setcolorder(
+    constraint_dt,
+    c(
+      "sequence", "condition", "model",
+      "n_constraints", "n_satisfied", "all_verified",
+      "failed_constraints", "worst_min_distance"
+    )
+  )
+  setorder(constraint_dt, sequence, condition, model)
+
+  constraint_dt
+}
+
+
+table_constraints <- function(constraint_dt, seq,
+                              project = get("project", parent.frame()),
+                              page_length = 25) {
+  # Render an interactive DT::datatable of constraint verification results
+  # for a single sequence, wrapped in a Bootstrap 5 theme (bslib) and saved
+  # as a standalone HTML page (per sequence).
+  #
+  # Rows are one per model; columns show the condition label, model index,
+  # restraint count, number of satisfied restraints (colour bar), a
+  # verified check/cross, and a list of the non-verified restraints.
+  dt <- copy(constraint_dt[sequence == seq])
+  if (nrow(dt) == 0) {
+    return(NULL)
+  }
+  dt[, c("sequence", "model_name", "experiment") := NULL]
+  dt[, verified := fifelse(all_verified == 1, "\u2713", "\u2717")]
+  setcolorder(
+    dt,
+    c(
+      "condition", "model", "n_constraints", "n_satisfied",
+      "all_verified", "verified", "failed_constraints", "worst_min_distance"
+    )
+  )
+  setnames(
+    dt,
+    c("condition", "model", "n_constraints", "n_satisfied",
+      "verified", "failed_constraints", "worst_min_distance"),
+    c("Condition", "Model", "Restraints", "Satisfied",
+      "Verified", "Non-verified restraints", "Worst min. distance (\u00C5)")
+  )
+
+  element_id <- paste0(
+    "constraint_table_",
+    gsub("[^A-Za-z0-9]", "_", tolower(seq))
+  )
+
+  display_table <- DT::datatable(
+    dt,
+    extensions = "Buttons",
+    filter = "top",
+    class = "display cell-border stripe hover compact",
+    elementId = element_id,
+    options = list(
+      pageLength = page_length,
+      scrollX = TRUE,
+      dom = "Bfrtip",
+      buttons = c("copy", "csv", "excel", "print"),
+      lengthMenu = list(c(10, 25, 50, -1), c("10", "25", "50", "All")),
+      columnDefs = list(
+        list(visible = FALSE, targets = which(names(dt) == "all_verified") - 1)
+      )
+    ),
+    rownames = FALSE
+  ) |>
+    formatRound(columns = "Worst min. distance (\u00C5)", digits = 3) |>
+    formatStyle(
+      columns = "Verified",
+      valueColumns = "all_verified",
+      backgroundColor = styleEqual(c(1, 0), c("#d4edda", "#f8d7da"))
+    ) |>
+    formatStyle(
+      columns = "Satisfied",
+      background = styleColorBar(
+        range(dt$Satisfied, na.rm = TRUE),
+        "#9fc69f",
+        angle = 90
+      ),
+      backgroundSize = "100% 90%",
+      backgroundRepeat = "no-repeat",
+      backgroundPosition = "center"
+    ) |>
+    formatStyle(
+      columns = "Worst min. distance (\u00C5)",
+      background = styleColorBar(
+        range(dt[["Worst min. distance (\u00C5)"]], na.rm = TRUE),
+        "#D3D3D3",
+        angle = 270
+      ),
+      backgroundSize = "100% 90%",
+      backgroundRepeat = "no-repeat",
+      backgroundPosition = "center"
+    )
+
+  # Standalone themed HTML page, one file per sequence
+  bs_theme <- bslib::bs_theme(
+    version = 5,
+    bootswatch = "flatly",
+    base_font = bslib::font_google("Inter")
+  )
+  themed_page <- bslib::page_fluid(
+    title = paste0("Constraint Verification \u2014 ", seq),
+    theme = bs_theme,
+    display_table
+  )
+  htmltools::save_html(
+    themed_page,
+    file = file.path(project, paste0("constraint_verification_", tolower(seq), ".html"))
+  )
+
+  display_table
+}
+
+
+# =====================================================================
 #  PAE / PDE: read CSVs and melt into long format for heatmap plotting
 # =====================================================================
 
