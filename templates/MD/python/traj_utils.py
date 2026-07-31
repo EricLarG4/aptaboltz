@@ -11,6 +11,8 @@ find_trajectory_pairs(job_dir)
 
 generate_trajectory_viewer(project, experiment, job, verbose=True)
     Generate a multi-snapshot .mvsj file for trajectory visualisation.
+    Each snapshot is titled "model N" (the short identifier derived
+    from the task directory name).
 """
 
 import json
@@ -169,7 +171,7 @@ def generate_trajectory_viewer(project, experiment, job, verbose=True, base_url=
         lig_rep.color(color="#ff6666")
 
         snap = b.get_snapshot(
-            title=task_name,
+            title=f"model {task_name.split('_')[-1]}",
             linger_duration_ms=3000,
             transition_duration_ms=500,
         )
