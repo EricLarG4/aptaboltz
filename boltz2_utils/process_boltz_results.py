@@ -15,6 +15,7 @@ Entry point for a single job directory: process_experiment()
 import yaml
 from natsort import natsort
 from pymol import cmd
+import gemmi
 import os
 import numpy as np
 import pandas as pd
@@ -304,19 +305,34 @@ def load_constraints(project, model, experiment):
         return None
 
     print(f"Loading constraints from: {yaml_path}")
-    with open(yaml_path) as fh:
-        data = yaml.safe_load(fh)
-
-    # 2. Extract raw constraint list
-    constraints_raw = data.get("constraints", [])
-    if not constraints_raw:
+    constraints = _parse_constraint_pairs(yaml_path)
+    if not constraints:
         print("No constraints section found in YAML file.")
         return None
 
     # 3. Deduplicate using frozenset so order doesn't matter,
     #    then convert to sorted tuples for predictable ordering
-    unique_pairs = set()
-    for entry in constraints_raw:
+    constraints_list = list(constraints.keys())
+    print(f"Extracted {len(constraints_list)} unique constraint pairs.")
+    return constraints_list
+
+
+def _parse_constraint_pairs(yaml_path):
+    """
+    Parse unique contact constraints from a Boltz-2 YAML file.
+
+    Returns
+    -------
+    dict
+        Mapping from canonical ``((chain_i, res_i), (chain_j, res_j))``
+        tuples (order-insensitive, deduplicated) to the restraint's
+        ``max_distance``.
+    """
+    with open(yaml_path) as fh:
+        data = yaml.safe_load(fh)
+
+    unique_pairs = {}
+    for entry in data.get("constraints", []):
         contact = entry.get("contact", {})
         token1 = contact.get("token1")
         token2 = contact.get("token2")
@@ -324,12 +340,10 @@ def load_constraints(project, model, experiment):
             continue
         if len(token1) != 2 or len(token2) != 2:
             continue
-        pair = frozenset({(token1[0], token1[1]), (token2[0], token2[1])})
-        unique_pairs.add(pair)
+        pair = tuple(sorted({(token1[0], token1[1]), (token2[0], token2[1])}))
+        unique_pairs[pair] = float(contact.get("max_distance", 4.0))
 
-    constraints_list = [tuple(sorted(p)) for p in unique_pairs]
-    print(f"Extracted {len(constraints_list)} unique constraint pairs.")
-    return constraints_list
+    return unique_pairs
 
 
 def color_constrained_residues(constraints):
@@ -398,6 +412,197 @@ def color_constrained_residues(constraints):
         res_list = sorted(component)
         res_desc = "; ".join(f"{ch}:{r}" for (ch, r) in res_list)
         print(f"  Component {idx + 1} -> {color}: {res_desc}")
+
+
+def _model_heavy_atoms(block):
+    """
+    Extract per-residue heavy-atom coordinates from one mmCIF model block.
+
+    Returns
+    -------
+    dict
+        Mapping from ``(chain, res_seq)`` to an (n, 3) float array of heavy
+        atom coordinates. Chain is the auth chain id and res_seq the label
+        sequence number (1-based), matching the residue tokens in the
+        constraint YAML files.
+    """
+    atoms = {}
+    table = block.find_mmcif_category("_atom_site.")
+    for row in table:
+        if row.str(2) in ("H", "D"):
+            continue
+        chain = row.str(16)
+        try:
+            seq = int(row.str(8))
+        except (TypeError, ValueError):
+            continue
+        key = (chain, seq)
+        atoms.setdefault(key, []).append(
+            (float(row.str(10)), float(row.str(11)), float(row.str(12)))
+        )
+    return {k: np.asarray(v) for k, v in atoms.items()}
+
+
+def _min_heavy_atom_distance(atom_arrays, pair):
+    """
+    Minimum Euclidean distance (Å) between two residues' heavy atoms.
+
+    Parameters
+    ----------
+    atom_arrays : dict
+        Output of :func:`_model_heavy_atoms`.
+    pair : tuple
+        ``((chain_i, res_i), (chain_j, res_j))``.
+    """
+    (chain_i, res_i), (chain_j, res_j) = pair
+    a_i = atom_arrays.get((chain_i, res_i))
+    a_j = atom_arrays.get((chain_j, res_j))
+    if a_i is None or a_j is None or len(a_i) == 0 or len(a_j) == 0:
+        return float("inf")
+    diff = a_i[:, None, :] - a_j[None, :, :]
+    return float(np.linalg.norm(diff, axis=-1).min())
+
+
+def _pair_label(pair):
+    """
+    Compact human-readable label for a constraint pair, e.g. ``A14-A24``.
+    """
+    (chain_i, res_i), (chain_j, res_j) = pair
+    return f"{chain_i}{res_i}-{chain_j}{res_j}"
+
+
+def process_constraint_verification(project, model, experiment, verbose=True):
+    """
+    Compute per-model satisfaction of contact restraints for one Boltz-2 job.
+
+    For each unique contact restraint ``(i, j)`` extracted from the
+    experiment's YAML file and for every model in the job's CIF file, the
+    minimum heavy-atom distance between residues i and j is compared against
+    the restraint's ``max_distance``.
+
+    Verification is ambiguity-aware: restraint sets may list a residue with
+    more than one possible partner (e.g. both ``A16-A22`` and ``A16-A23``),
+    but a base-paired residue can only contact one partner at a time, so not
+    all listed restraints can be satisfied simultaneously. A model is
+    therefore marked as fully verified when **every constrained residue takes
+    part in at least one satisfied restraint** (i.e. no constrained residue
+    is left without any satisfied contact). Unsatisfied restraints whose
+    endpoints are both covered by other satisfied restraints (explained
+    ambiguity, e.g. ``A16-A23`` when T16 pairs A22) are not treated as
+    failures.
+
+    Only experiments whose model name contains the ``"_constrained"`` suffix
+    are processed (the naming convention used by
+    :func:`~.generate_boltz2_yaml.generate_yaml_file`).
+
+    Results are written to
+    ``{project}/{model}/{experiment}/{model}_{experiment}_constraints.csv``
+    with one row per model:
+
+    - model: 0-based model index (matches the sample numbering used for MD
+      forwarding)
+    - n_constraints / n_satisfied: unique restraint counts
+    - all_verified: 1 if every constrained residue is covered by at least
+      one satisfied restraint, else 0
+    - failed_constraints: semicolon-separated labels of restraints that are
+      unsatisfied while at least one of their endpoints is not covered
+      ("—" when there are none)
+    - worst_min_distance: largest min-distance observed across restraints
+
+    Parameters
+    ----------
+    project : str
+    model : str
+    experiment : str
+    verbose : bool
+        Print progress messages to stdout (default True).
+    """
+    if "_constrained" not in model:
+        if verbose:
+            print("Model name does not indicate constraints — skipping constraint verification.")
+        return None
+
+    yaml_path = f"{project}/yaml/{model}.yaml"
+    if not os.path.exists(yaml_path):
+        if verbose:
+            print(f"YAML file not found: {yaml_path}")
+        return None
+    constraints = _parse_constraint_pairs(yaml_path)
+    if not constraints:
+        if verbose:
+            print("No contact constraints found in YAML file.")
+        return None
+
+    experiment_path = f"{project}/{model}/{experiment}/"
+    cif_files = [f for f in os.listdir(experiment_path) if f.endswith(".cif")]
+    if not cif_files:
+        if verbose:
+            print(f"No CIF files found in {experiment_path}")
+        return None
+    cif_path = os.path.join(experiment_path, cif_files[0])
+    if verbose:
+        print(f"Reading models from: {cif_path}")
+
+    # Residues -> incident constraints, for ambiguity-aware coverage
+    residue_constraints = {}
+    for pair in constraints:
+        residue_constraints.setdefault(pair[0], []).append(pair)
+        residue_constraints.setdefault(pair[1], []).append(pair)
+
+    doc = gemmi.cif.read(cif_path)
+    rows = []
+    for model_idx, block in enumerate(doc):
+        atom_arrays = _model_heavy_atoms(block)
+        satisfied = set()
+        distances = {}
+        for pair, max_distance in constraints.items():
+            dist = _min_heavy_atom_distance(atom_arrays, pair)
+            distances[pair] = dist
+            if dist <= max_distance:
+                satisfied.add(pair)
+
+        # A residue is covered if at least one of its restraints is satisfied
+        covered = {
+            res
+            for res, pairs in residue_constraints.items()
+            if any(p in satisfied for p in pairs)
+        }
+        all_verified = len(covered) == len(residue_constraints)
+
+        # Report only unsatisfied restraints with an uncovered endpoint
+        failed = [
+            pair
+            for pair in constraints
+            if pair not in satisfied
+            and (pair[0] not in covered or pair[1] not in covered)
+        ]
+        failed.sort(key=_pair_label)
+
+        rows.append(
+            {
+                "model": model_idx,
+                "n_constraints": len(constraints),
+                "n_satisfied": len(satisfied),
+                "all_verified": int(all_verified),
+                "failed_constraints": "; ".join(_pair_label(p) for p in failed)
+                if failed
+                else "—",
+                "worst_min_distance": round(max(distances.values()), 3),
+            }
+        )
+
+    result_df = pd.DataFrame(rows)
+    out_path = f"{experiment_path}{model}_{experiment}_constraints.csv"
+    result_df.to_csv(out_path, index=False)
+
+    if verbose:
+        n_ok = int(result_df["all_verified"].sum())
+        print(
+            f"Constraint verification for {project}/{model}/{experiment}: "
+            f"{n_ok}/{len(result_df)} models fully verified. "
+            f"Saved: {out_path}"
+        )
+    return out_path
 
 
 # =====================================================================
