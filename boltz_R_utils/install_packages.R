@@ -19,7 +19,8 @@ required_r_pkgs <- c(
   "bslib",
   "reticulate",
   "stringr",
-  "ggrepel"
+  "ggrepel",
+  "ggpattern"
 )
 
 # Install any missing R packages from CRAN
