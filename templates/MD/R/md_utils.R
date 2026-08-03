@@ -9,6 +9,8 @@
 #       atomicfluct command
 #     - Custom ggplot2 themes for publication-quality figures
 #     - Plotting 2D RMSD heatmaps and atomic fluctuation profiles
+#     - Reading minimised-structure contact-restraint verification CSVs
+#       (*_minimized_constraints.csv)
 #
 # DEPENDENCIES
 #   data.table, stringr, ggplot2, ggrepel
@@ -36,6 +38,11 @@
 #   plot_atomfluct(atomfluct, res_cutoff, label_cutoff, scale)
 #     Plots per-residue atomic fluctuation as a line/point chart with
 #     automatic labeling of high-fluctuation regions via ggrepel.
+#
+#   read_minimized_constraints(project)
+#     Reads all "*_minimized_constraints.csv" files under
+#     "{project}/MD/pmemd/out/" into a single data.table, keeping only the
+#     most recent job per experiment (all model rows of that job).
 #
 # USAGE
 #   source("md_utils.R")
@@ -390,4 +397,83 @@ plot_atomfluct <- function(
     scale_color_viridis_c() +
     theme_custom(scaling = scale) +
     facet_grid(subgroup_id ~ experiment)
+}
+
+
+#===============================================================================
+# read_minimized_constraints(project)
+#   Reads all "*_minimized_constraints.csv" files under
+#   "{project}/MD/pmemd/out/" (one per experiment/job, written by
+#   process_minimized_constraint_verification in templates/MD/python/pymol_utils.py)
+#   into a single data.table. Derives 'sequence' (e.g. "CSS1") and 'condition'
+#   (Free / HCY / PQ) labels from the experiment name and adds the job id.
+#
+# Returns:
+#   A data.table with columns sequence, condition, experiment, job, model,
+#   n_constraints, n_satisfied, all_verified, failed_constraints,
+#   worst_min_distance, ordered by sequence -> condition -> model.
+#===============================================================================
+read_minimized_constraints <- function(project) {
+  constraint_files <- list.files(
+    path = file.path(project, "MD", "pmemd", "out"),
+    pattern = "_minimized_constraints\\.csv",
+    recursive = TRUE,
+    full.names = TRUE
+  )
+  if (length(constraint_files) == 0) {
+    return(data.table(
+      sequence = character(), condition = character(), experiment = character(),
+      job = character(), model = integer(), n_constraints = integer(),
+      n_satisfied = integer(), all_verified = integer(),
+      failed_constraints = character(), worst_min_distance = numeric()
+    ))
+  }
+
+  constraint_dt <- lapply(constraint_files, function(x) {
+    dt <- fread(x)
+    exp_dir <- dirname(x)
+    dt[, c("experiment", "job") := .(
+      basename(dirname(exp_dir)),
+      basename(exp_dir)
+    )]
+    dt
+  }) |>
+    rbindlist(fill = TRUE)
+
+  constraint_dt[, sequence := sub("_.*$", "", experiment)]
+  model_base <- sub("_constrained$", "", constraint_dt$experiment)
+  cond_raw <- sub("^[^_]+_", "", model_base)
+  cond_map <- c(
+    free = "Free",
+    hcy = "HCY",
+    pq = "PQ",
+    piperaquine = "PQ"
+  )
+  cond_key <- tolower(cond_raw)
+  constraint_dt[, condition := ifelse(
+    cond_key %in% names(cond_map),
+    unname(cond_map[cond_key]),
+    cond_raw
+  )]
+
+  # Keep only the most recent (highest-numbered) job per experiment, so that a
+  # superseded MD run (e.g. a relaunched production simulation) does not add a
+  # duplicate set of rows next to the latest one.  All model rows of that job
+  # are retained (one row per task replicate).
+  constraint_dt[, job_num := as.numeric(sub("^J", "", job))]
+  constraint_dt <- constraint_dt[
+    constraint_dt[, .I[job_num == max(job_num)], by = experiment]$V1
+  ]
+  constraint_dt[, job_num := NULL]
+
+  setcolorder(
+    constraint_dt,
+    c(
+      "sequence", "condition", "experiment", "job", "model",
+      "n_constraints", "n_satisfied", "all_verified",
+      "failed_constraints", "worst_min_distance"
+    )
+  )
+  setorder(constraint_dt, sequence, condition, experiment, model)
+  constraint_dt
 }
