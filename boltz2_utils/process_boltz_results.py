@@ -317,9 +317,13 @@ def load_constraints(project, model, experiment):
     return constraints_list
 
 
-def _parse_constraint_pairs(yaml_path):
+def _parse_constraint_pairs(yaml_path, stem_length=0):
     """
     Parse unique contact constraints from a Boltz-2 YAML file.
+
+    When *stem_length* is > 0, any constraint whose DNA strand residue
+    number is within the stem region (``<= stem_length``) is dropped
+    (stem base pairs are structural, not informative contacts).
 
     Returns
     -------
@@ -339,6 +343,10 @@ def _parse_constraint_pairs(yaml_path):
         if token1 is None or token2 is None:
             continue
         if len(token1) != 2 or len(token2) != 2:
+            continue
+        if stem_length > 0 and (
+            token1[1] <= stem_length or token2[1] <= stem_length
+        ):
             continue
         pair = tuple(sorted({(token1[0], token1[1]), (token2[0], token2[1])}))
         unique_pairs[pair] = float(contact.get("max_distance", 4.0))
@@ -471,7 +479,8 @@ def _pair_label(pair):
     return f"{chain_i}{res_i}-{chain_j}{res_j}"
 
 
-def process_constraint_verification(project, model, experiment, verbose=True):
+def process_constraint_verification(project, model, experiment, verbose=True,
+                                    stem_length=0):
     """
     Compute per-model satisfaction of contact restraints for one Boltz-2 job.
 
@@ -516,6 +525,9 @@ def process_constraint_verification(project, model, experiment, verbose=True):
     experiment : str
     verbose : bool
         Print progress messages to stdout (default True).
+    stem_length : int, default 0
+        Number of stem residues to exclude from verification (any
+        constraint with a residue number ``<= stem_length`` is dropped).
     """
     if "_constrained" not in model:
         if verbose:
@@ -527,7 +539,7 @@ def process_constraint_verification(project, model, experiment, verbose=True):
         if verbose:
             print(f"YAML file not found: {yaml_path}")
         return None
-    constraints = _parse_constraint_pairs(yaml_path)
+    constraints = _parse_constraint_pairs(yaml_path, stem_length=stem_length)
     if not constraints:
         if verbose:
             print("No contact constraints found in YAML file.")
