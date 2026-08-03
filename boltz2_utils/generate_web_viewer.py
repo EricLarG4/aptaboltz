@@ -46,6 +46,28 @@ CONSTRAINT_COLORS = [
 ]
 
 
+# Colours for essential DNA bases by base identity (matches the PyMOL scheme)
+_ESSENTIAL_BASE_COLORS = {
+    "A": "#ADD8E6",  # lightblue
+    "C": "#DDA0DD",  # plum
+    "G": "#D2B48C",  # tan
+    "T": "#90EE90",  # lightgreen
+}
+
+# Nucleic residue name → single-letter base (mmCIF / PDB names)
+_ESSENTIAL_RESIDUE_BASE = {
+    "DA": "A", "DA5": "A", "DA3": "A",
+    "DC": "C", "DC5": "C", "DC3": "C",
+    "DG": "G", "DG5": "G", "DG3": "G",
+    "DT": "T", "DT5": "T", "DT3": "T",
+    "DI": "G",
+    "A": "A", "A5": "A", "A3": "A",
+    "C": "C", "C5": "C", "C3": "C",
+    "G": "G", "G5": "G", "G3": "G",
+    "U": "T", "U5": "T", "U3": "T",
+}
+
+
 # pLDDT gradient matching PyMOL "tv_red yelloworange palecyan density"
 _PLDDT_GRADIENT = [
     (50.0, (1.0, 0.0, 0.0)),        # tv_red
@@ -198,7 +220,8 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
 # =====================================================================
 
 
-def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
+def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True,
+                               stem_length=0):
     """Generate a multi-snapshot .mvsj file with constraint-component colouring.
 
     Loads contact constraints from the Boltz-2 YAML file, finds connected
@@ -218,8 +241,12 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
         Destination path for the .mvsj file.
     verbose : bool, default True
         If False, suppresses status prints to stdout.
+    stem_length : int, default 0
+        Number of stem residues to exclude from constraint colouring
+        (any constraint with a residue number ``<= stem_length`` is dropped).
     """
-    constraints = _load_constraints(yaml_path, verbose=verbose)
+    constraints = _load_constraints(yaml_path, verbose=verbose,
+                                    stem_length=stem_length)
     if not constraints:
         if verbose:
             print("  No constraints found -- skipping constraint MVSJ generation.")
@@ -310,12 +337,148 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True):
 
 
 # =====================================================================
+#  Essential-bases viewer
+# =====================================================================
+
+
+def _essential_base_annotation(block, essential_seqids):
+    """Build a residue-colour annotation colouring essential DNA bases.
+
+    Scans every nucleic residue in the first model *block*; residues whose
+    ``label_seq_id`` is in ``essential_seqids`` are coloured by base identity
+    (A/C/G/T) via :data:`_ESSENTIAL_BASE_COLORS`. Non-essential residues are
+    left out so they render white.
+
+    Returns a list of dicts ready to JSON-serialize as a Mol* ``schema =
+    "residue"`` colour annotation, or an empty list if none matched.
+    """
+    st = gemmi.make_structure_from_block(block)
+    annotation = []
+    for model in st:
+        for chain in model:
+            chain_id = chain.name.strip() or "A"
+            for residue in chain:
+                base = _ESSENTIAL_RESIDUE_BASE.get(residue.name.strip())
+                if base is None:
+                    continue
+                seqid = residue.seqid.num
+                if seqid in essential_seqids:
+                    annotation.append({
+                        "label_asym_id": chain_id,
+                        "label_seq_id": seqid,
+                        "color": _ESSENTIAL_BASE_COLORS[base],
+                    })
+    return annotation
+
+
+def generate_essential_viewer(cif_path, essential_seqids, output_path,
+                              verbose=True):
+    """Generate a multi-snapshot .mvsj file colouring essential DNA bases.
+
+    The DNA cartoon is white except for the essential residues, which are
+    coloured by base identity (adenine lightblue, cytosine plum, guanine tan,
+    thymine lightgreen), matching the PyMOL scheme. The ligand is shown as
+    ball-and-stick with element (CPK) colours.
+
+    Parameters
+    ----------
+    cif_path : str
+        Path to the PyMOL-aligned multi-model CIF file.
+    essential_seqids : set of int
+        Absolute residue numbers (within the aptamer DNA chain) to colour.
+    output_path : str
+        Destination path for the .mvsj file.
+    verbose : bool, default True
+        If False, suppresses status prints to stdout.
+    """
+    doc = gemmi.cif.read_file(str(cif_path))
+    annotation = _essential_base_annotation(doc[0], set(essential_seqids))
+    if not annotation:
+        if verbose:
+            print("  No essential DNA residues found -- skipping essential MVSJ generation.")
+        return
+
+    ann_bytes = json.dumps(annotation).encode()
+    ann_b64 = base64.b64encode(ann_bytes).decode()
+    data_uri = f"data:application/json;base64,{ann_b64}"
+
+    snapshots = []
+
+    for model_idx, block in enumerate(doc):
+        single_doc = gemmi.cif.Document()
+        single_doc.add_copied_block(block)
+        with tempfile.NamedTemporaryFile(suffix=".cif", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            single_doc.write_file(tmp_path)
+            with open(tmp_path, "rb") as fh:
+                cif_bytes = fh.read()
+        finally:
+            os.unlink(tmp_path)
+
+        cif_b64 = base64.b64encode(cif_bytes).decode()
+        cif_data_uri = f"data:chemical/x-cif;base64,{cif_b64}"
+
+        b = mvs.create_builder()
+        b.canvas(custom={"molstar_postprocessing": {"enable_outline": True, "enable_ssao": False}})
+        ds = b.download(url=cif_data_uri)
+        ps = ds.parse(format="mmcif")
+        ms = ps.model_structure()
+
+        # Polymer → cartoon → white + essential-base colouring
+        poly_comp = ms.component(selector="all")
+        poly_rep = poly_comp.representation(
+            type="cartoon",
+            custom={"molstar_representation_params": {"ignoreLight": True}},
+        )
+        poly_rep.color(color="white")
+        poly_rep.color_from_uri(
+            uri=data_uri,
+            format="json",
+            schema="residue",
+            field_name="color",
+        )
+
+        # Ligand → ball-and-stick → element (CPK) coloring
+        lig_comp = ms.component(selector="ligand")
+        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5, custom={"molstar_representation_params": {"ignoreLight": True}})
+        lig_rep.color_from_source(
+            schema="atom",
+            category_name="_atom_site",
+            field_name="type_symbol",
+            palette=CategoricalPalette(colors="ElementSymbol"),
+        )
+
+        snap = b.get_snapshot(
+            title=f"Model {model_idx}",
+            linger_duration_ms=3000,
+            transition_duration_ms=500,
+        )
+        snapshots.append(snap)
+
+    mvsj_name = os.path.basename(output_path)
+    states = States(
+        metadata=GlobalMetadata(title=os.path.splitext(mvsj_name)[0]),
+        snapshots=snapshots,
+    )
+    states_dict = states.model_dump(exclude_none=True)
+    with open(output_path, "w") as fh:
+        json.dump(states_dict, fh, indent=2)
+    if verbose:
+        print(f"  Wrote multi-model essential-bases MVSJ: {output_path}")
+
+
+# =====================================================================
 #  Constraint helpers (adapted from process_boltz_results.py)
 # =====================================================================
 
 
-def _load_constraints(yaml_path, verbose=True):
+def _load_constraints(yaml_path, verbose=True, stem_length=0):
     """Load unique contact constraints from a Boltz-2 YAML file.
+
+    When *stem_length* is > 0, any constraint whose DNA strand residue
+    number is within the stem region (``<= stem_length``) is dropped
+    (stem base pairs are structural, not informative contacts).
 
     Returns ``None`` if the file doesn't exist or the constraints section
     is empty/missing.
@@ -342,6 +505,10 @@ def _load_constraints(yaml_path, verbose=True):
         if token1 is None or token2 is None:
             continue
         if len(token1) != 2 or len(token2) != 2:
+            continue
+        if stem_length > 0 and (
+            token1[1] <= stem_length or token2[1] <= stem_length
+        ):
             continue
         pair = frozenset({(token1[0], token1[1]), (token2[0], token2[1])})
         unique_pairs.add(pair)
