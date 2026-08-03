@@ -4,101 +4,90 @@
 # DESCRIPTION
 #   Calculates the number of Na+, Mg2+, and Cl- ions needed to reach the
 #   target ionic concentrations in a solvated MD system, given the water-box
-#   volume and net system charge.  The results are printed to the console in
-#   a format that tells you exactly what flags to pass to leap.sh.
+#   volume and net system charge. Results are displayed as DT tables.
 #
 #   Two methods are computed:
 #     - SPLIT:  N0 = Nw * conc / 55.5  (classic approximation)
 #     - SLTCAP: self-consistent solution (Machado + SLTCAP paper)
 #               https://doi.org/10.1021/acs.jctc.7b01254
-#
 #   The SLTCAP method is preferred; it does not require N0 >> |Q|.
 #
 # DEPENDENCIES
-#   Base R only — no external packages required.
+#   data.table, DT
 #
 # USAGE
-#   1. Edit the four variables below (C_NaCl, C_MgCl2, Nw, Q) to match
-#      your system.  Obtain Nw and box.vol.angst from the leap.log output
-#      after running leap.sh once with approximate ion counts.
+#   1. Edit the variables below (C_NaCl, C_MgCl2, box.vol.angst, Nw, Q) to
+#      match your system.  Obtain Nw and box.vol.angst from the leap.log
+#      output after running leap.sh once with approximate ion counts.
 #   2. Run in R:
 #        source("ions.R")
-#   3. Use the printed leap.sh command in your leap.sh invocation.
-#
-# INPUT VARIABLES (EDIT THESE)
-#   C_NaCl        — Target NaCl concentration (Molar). Default: 0.14
-#   C_MgCl2       — Target MgCl2 concentration (Molar). Default: 0.01
-#   Nw            — Number of water molecules in the solvated box.
-#                   Obtain from leap.log: "Added X water molecules."
-#   Q             — Net charge of the system (from phosphate backbone, etc.)
-#                   e.g. -45 for a 46-mer DNA aptamer.
-#
-# METHOD
-#   N0  = Nw * C_NaCl / 55.5
-#   Na⁺ = N0 * sqrt(1 + (Q / (2 * N0))^2) - Q / 2    (SLTCAP)
-#   Cl⁻ = N0 * sqrt(1 + (Q / (2 * N0))^2) + Q / 2    (SLTCAP)
-#
-#   Mg²⁺ and its accompanying Cl⁻ are then scaled proportionally from
-#   the NaCl count by the concentration ratio C_MgCl2 / C_NaCl.
-#
-#   Final Cl⁻ = NaCl_Cl⁻ + 2 * Mg²⁺
+#   3. Use the resulting n_Na / n_Mg / n_Cl counts in leap.sh:
+#        ./leap.sh -n <n_Na> -m <n_Mg> -c <n_Cl>
 #
 # REFERENCES
 #   - Matías Machado method: http://archive.ambermd.org/202002/0194.html
 #   - SLTCAP: https://doi.org/10.1021/acs.jctc.7b01254
 #===============================================================================
 
-# ─── EDIT THESE VALUES FOR YOUR SYSTEM ──────────────────────────────
-C_NaCl  <- 0.14  # Molar concentration of NaCl
-C_MgCl2 <- 0.01  # Molar concentration of MgCl2
-Nw      <- 14206 # Number of water molecules (from leap.log)
-Q       <- -45   # Net system charge
-# ─────────────────────────────────────────────────────────────────────
+library(data.table)
+library(DT)
 
-cat("\n")
-cat("═══════════════════════════════════════════════════════════\n")
-cat("  Ion Concentration Calculator                           \n")
-cat("═══════════════════════════════════════════════════════════\n")
-cat(sprintf("  Target NaCl  concentration:  %.2f M\n", C_NaCl))
-cat(sprintf("  Target MgCl2 concentration:  %.2f M\n", C_MgCl2))
-cat(sprintf("  Water molecules (Nw):        %d\n", Nw))
-cat(sprintf("  Net charge (Q):              %d\n", Q))
-cat("───────────────────────────────────────────────────────────────\n")
+# ─── EDIT THESE VALUES FOR YOUR SYSTEM ─────────────────────────────────
+C_NaCl <- 0.14      # Target NaCl concentration (Molar)
+C_MgCl2 <- 0.01     # Target MgCl2 concentration (Molar)
+box.vol.angst <- 492689.905  # Volume of the box (cubic Angstroms, from leap.log)
+Nw <- 14206         # Number of water molecules (from leap.log)
+Q <- -45            # Net system charge (e.g. -45 for a 46-mer DNA aptamer)
+# ────────────────────────────────────────────────────────────────────────
 
-# N0 = Nw * C_NaCl / 55.5 (water molarity at STP)
-N0 <- Nw * C_NaCl / 55.5
 
-# SLTCAP method (preferred)
-sqrt_term <- sqrt(1 + (Q / (2 * N0))^2)
-na_sltcap <- round(N0 * sqrt_term - Q / 2, 0)
-cl_sltcap <- round(N0 * sqrt_term + Q / 2, 0)
+salt_dt <- data.table(
+  conc = C_NaCl,
+  box.vol.angst = box.vol.angst,
+  Nw = Nw,
+  Q = Q
+) |>
+  _[, `:=`(
+    # "avogadro's method"
+    box.vol.liter = box.vol.angst * 1e-27, # convert to liters
+    # box.vol.reduced = box.vol.angst/(3.16655 * 3.16655 * 3.16655), # Lennard-Jones sigma parameter for OPC water model: https://pubs.acs.org/doi/10.1021/jz501780a
+    # method of Matias Machado: http://archive.ambermd.org/202002/0194.html
+    N0 = Nw * conc / 55.5 # 56 in original method
+  )] |>
+  _[, `:=`(
+    test.SPLIT = (N0 > 10 * abs(Q)), # test hypothesis
+    sodium.SPLIT = round(N0 - Q / 2, 0), # number of sodium ions
+    chloride.SPLIT = round(N0 + Q / 2, 0) # number of chloride ions
+  )] |>
+  _[, `:=`(
+    verif.SPLIT = (sodium.SPLIT * 1 + chloride.SPLIT * -1 + Q == 0), # N0 >> Q
+    # SLTCAP does not require N0 >> Q: https://doi.org/10.1021/acs.jctc.7b01254
+    sodium.SLTCAP = round(N0 * sqrt(1 + (Q / (2 * N0))^2) - Q / 2, 0),
+    chloride.SLTCAP = round(N0 * sqrt(1 + (Q / (2 * N0))^2) + Q / 2, 0)
+  )] |>
+  _[, `:=`(
+    verif.SLTCAP = (sodium.SLTCAP * 1 + chloride.SLTCAP * -1 + Q == 0),
+    eq.SPLIT.SLTCAP = (sodium.SPLIT == sodium.SLTCAP &
+      chloride.SPLIT == chloride.SLTCAP)
+  )]
 
-# SPLIT method (for comparison)
-na_split <- round(N0 - Q / 2, 0)
-cl_split <- round(N0 + Q / 2, 0)
+datatable(salt_dt)
 
-# Mg2+ scaled from NaCl by concentration ratio
-n_mg <- round(C_MgCl2 * cl_sltcap / C_NaCl, 0)
-n_cl_mg <- 2 * n_mg
-n_cl_total <- cl_sltcap + n_cl_mg
+# Number of Na and Cl corresponding to the NaCl concentration:
+n_NaCl <- salt_dt$chloride.SLTCAP
 
-cat("\n")
-cat("  ── Results (SLTCAP method) ──\n")
-cat(sprintf("  Na+  (NaCl):   %d\n", na_sltcap))
-cat(sprintf("  Mg2+ (MgCl2):  %d\n", n_mg))
-cat(sprintf("  Cl-  (total):  %d  (%d from NaCl + %d from MgCl2)\n",
-    n_cl_total, cl_sltcap, n_cl_mg))
+# By proportion, the number of Mg and Cl2 corresponding to the MgCl2
+# concentration:
+n_Mg <- round(C_MgCl2 * n_NaCl / C_NaCl, 0)
+n_Cl <- 2 * n_Mg
 
-# Verify charge balance
-charge_check <- na_sltcap * 1 + n_mg * 2 + n_cl_total * (-1) + Q
-cat(sprintf("  Charge check:  %d  (should be 0)\n", charge_check))
+# Total number of chloride ions:
+n_Cl <- n_Cl + n_NaCl
 
-cat("\n")
-cat("  ── leap.sh command ──\n")
-cat(sprintf("  leap.sh -n %d -m %d -c %d\n", na_sltcap, n_mg, n_cl_total))
-cat("\n")
-cat("  ── SPLIT method (for reference) ──\n")
-cat(sprintf("  Na+  (NaCl):   %d\n", na_split))
-cat(sprintf("  Cl-  (NaCl):   %d\n", cl_split))
-cat("═══════════════════════════════════════════════════════════\n")
-cat("\n")
+datatable(
+  data.table(
+    n_Na = salt_dt$sodium.SLTCAP,
+    n_Mg = n_Mg,
+    n_Cl = n_Cl
+  )
+)
