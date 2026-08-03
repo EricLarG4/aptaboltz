@@ -251,7 +251,7 @@ workflows, follow the dedicated setup in [§2.2](#22-md-parameterisation-project
 | PyMOL | Any | `conda install -c conda-forge pymol-open-source` |
 | RDKit | Any | Included in `environment.yml` via conda-forge |
 | R (≥ 4.x) | Any | System R + `install_packages.R` |
-| R packages | Any | `data.table`, `ggplot2`, `DT`, `khroma`, `jsonlite`, `yaml`, `bslib`, `reticulate`, `stringr`, `ggrepel` |
+| R packages | Any | `data.table`, `ggplot2`, `DT`, `khroma`, `jsonlite`, `yaml`, `bslib`, `reticulate`, `stringr`, `ggrepel`, `ggpattern` |
 | ORCA | Linux/WSL | Download from orcaforum.kofo.mpg.de (for §8) |
 | Multiwfn | Windows/Linux | Download from sobereva.com/multiwfn (for §8) |
 | AmberTools | Linux/WSL | conda install or Amber website (for §8) |
@@ -293,7 +293,7 @@ source("boltz_R_utils/install_packages.R")
 This script:
 1. Installs any missing R packages from CRAN (`data.table`, `ggplot2`,
    `DT`, `khroma`, `jsonlite`, `yaml`, `bslib`, `reticulate`, `stringr`,
-   `ggrepel`).
+   `ggrepel`, `ggpattern`).
 2. Creates the `boltz` conda environment from `environment.yml` (if it
    does not yet exist).
 3. Configures `reticulate` to use the `boltz` conda environment.
