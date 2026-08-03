@@ -17,7 +17,9 @@ required_r_pkgs <- c(
   "jsonlite",
   "yaml",
   "bslib",
-  "reticulate"
+  "reticulate",
+  "stringr",
+  "ggrepel"
 )
 
 # Install any missing R packages from CRAN
