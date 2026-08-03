@@ -66,6 +66,7 @@ templates/                  Project-specific files with PLACEHOLDER_ values
       fix_pdb_elements.py         Add PDB element columns to Amber AC files (§8.6)
       model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
       pymol_utils.py              PyMOL visualisation utilities (§9.11)
+      traj_utils.py               Mol* trajectory viewer (.mvsj) generation (§9.12)
     R/
       ions.R                      Ion concentration calculator (§8.9)
       md_utils.R                  MD trajectory analysis: RMSD, atomic fluctuation (§9.10)
@@ -109,7 +110,7 @@ CSS/                        Real usage example (corticosteron-specific aptamers)
                                   ▼  (transfer to cluster)
 ┌──────────────────────────────────────────────────────────────────┐
 │  Cluster: sbatch → Boltz-2                                       │
-│  Outputs:  {job}/boltz_results/input/predictions/*.cif           │
+│  Outputs:  {job}/boltz_results_input/predictions/input/*.cif     │
 │            *_confidence.json, *_pae.npz, *_pde.npz, *_plddt.npz  │
 └──────────────────────────────────────────────────────────────────┘
                                   │
@@ -133,11 +134,43 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
 
 ---
 
+## Quick Start
+
+```bash
+# 1. Set up the conda environment (Python + PyMOL + RDKit + boltz2_utils)
+conda env create -f environment.yml
+conda activate boltz
+
+# 2. One-time R setup (installs R packages, creates the boltz env, configures reticulate)
+Rscript -e "source('boltz_R_utils/install_packages.R')"
+
+# 3. Start a project and generate Boltz-2 input files (YAML + SLURM)
+mkdir my_project
+cp templates/input_file_generator.py my_project/
+python my_project/input_file_generator.py --project my_project \
+    --seq Seq1 "GGGACGACGCCCGCATGTTCCATGGATAGTCTTGACTAGTCGTCCC" \
+    --ligand L01 "C0R" --free
+
+# 4. After the cluster run, post-process predictions (PyMOL + RDKit → pse/SDF/CSV)
+cp templates/output_file_processing.py my_project/
+python my_project/output_file_processing.py --project my_project \
+    --model Seq1 --ligand-dict '{"Aptamer1":"L01","free":"free"}' \
+    --name-map '{"L01":"Aptamer1"}'
+
+# 5. Visualise in R (copy templates/process.R, edit `project` + `ligand_number`, then §6)
+```
+
+For the MD force-field parameterisation (§8) and Amber MD preparation (§9)
+workflows, follow the dedicated setup in [§2.2](#22-md-parameterisation-project).
+
+---
+
 ## Table of Contents
 
 - [Scope](#scope)
 - [Repository Structure](#repository-structure)
 - [Boltz-2 Prediction Pipeline Overview](#boltz-2-prediction-pipeline-overview)
+- [Quick Start](#quick-start)
 - [1. Prerequisites and Installation](#1-prerequisites-and-installation)
   - [1.1 Platform Requirements](#11-platform-requirements)
   - [1.2 Installation Options](#12-installation-options)
@@ -166,8 +199,8 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
   - [6.1 Minimal Setup](#61-minimal-setup)
   - [6.2 Generated Files](#62-generated-files)
   - [6.3 Function Reference](#63-function-reference)
+  - [6.4 Troubleshooting — Boltz-2 Prediction Pipeline](#64-troubleshooting--boltz-2-prediction-pipeline)
 - [7. Molecule Type Support](#7-molecule-type-support)
-  - [7.1 Troubleshooting — Boltz-2 Prediction Pipeline](#71-troubleshooting--boltz-2-prediction-pipeline)
 - [8. MD Force-Field Parameterisation Pipeline](#8-md-force-field-parameterisation-pipeline)
   - [8.1 Pipeline Overview](#81-pipeline-overview)
   - [8.2 Platform Notes](#82-platform-notes)
@@ -195,6 +228,7 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
   - [9.9 Troubleshooting](#99-troubleshooting)
   - [9.10 MD Trajectory Analysis](#910-md-trajectory-analysis)
   - [9.11 PyMOL Visualisation Utilities](#911-pymol-visualisation-utilities)
+  - [9.12 MD Trajectory Visualisation (Mol*)](#912-md-trajectory-visualisation-mol)
 - [10. File Reference](#10-file-reference)
   - [Shared utilities (imported, do not edit for each project)](#shared-utilities-imported-do-not-edit-for-each-project)
   - [Project-specific templates (copy and edit per project)](#project-specific-templates-copy-and-edit-per-project)
@@ -217,7 +251,7 @@ For the MD parameterisation pipeline, see [§8](#8-md-force-field-parameterisati
 | PyMOL | Any | `conda install -c conda-forge pymol-open-source` |
 | RDKit | Any | Included in `environment.yml` via conda-forge |
 | R (≥ 4.x) | Any | System R + `install_packages.R` |
-| R packages | Any | `data.table`, `ggplot2`, `DT`, `khroma`, `jsonlite`, `yaml`, `bslib`, `reticulate` |
+| R packages | Any | `data.table`, `ggplot2`, `DT`, `khroma`, `jsonlite`, `yaml`, `bslib`, `reticulate`, `stringr`, `ggrepel` |
 | ORCA | Linux/WSL | Download from orcaforum.kofo.mpg.de (for §8) |
 | Multiwfn | Windows/Linux | Download from sobereva.com/multiwfn (for §8) |
 | AmberTools | Linux/WSL | conda install or Amber website (for §8) |
@@ -258,7 +292,8 @@ source("boltz_R_utils/install_packages.R")
 
 This script:
 1. Installs any missing R packages from CRAN (`data.table`, `ggplot2`,
-   `DT`, `khroma`, `jsonlite`, `yaml`, `bslib`, `reticulate`).
+   `DT`, `khroma`, `jsonlite`, `yaml`, `bslib`, `reticulate`, `stringr`,
+   `ggrepel`).
 2. Creates the `boltz` conda environment from `environment.yml` (if it
    does not yet exist).
 3. Configures `reticulate` to use the `boltz` conda environment.
@@ -269,8 +304,8 @@ This script:
 # Python / boltz2_utils
 python -c "from boltz2_utils.generate_boltz2_yaml import generate_boltz2_yamls; print('boltz2_utils OK')"
 
-# R + reticulate + conda env
-Rscript -e "source('boltz_R_utils/install_packages.R')"
+# R packages (data.table, stringr, ggrepel needed by §9.10)
+Rscript -e "library(data.table); library(stringr); library(ggrepel)"
 ```
 
 ---
@@ -327,15 +362,13 @@ mkdir -p my_project/MD/pmemd/in
 mkdir -p my_project/MD/slurm
 # Copy ALL MD template files (parameterisation + production)
 cp -r templates/MD/*       my_project/MD/
-cp templates/MD/R/ions.R    my_project/MD/R/
 ```
 
 This copies all MD pipeline scripts into the correct subdirectories:
 
 | Copy command | Destination | Files |
 |-------------|------------|-------|
-| `cp -r templates/MD/*` | `my_project/MD/` | `leap.sh`, `ligand_prep.sh`, `python/generate_pmemd_inputs.py`, `python/generate_md_slurm.py`, `python/model_prep.py`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `pmemd/in/archive/`, `slurm/PrepAndMin.slurm` |
-| `cp templates/MD/R/ions.R` | `my_project/MD/R/` | `ions.R` |
+| `cp -r templates/MD/*` | `my_project/MD/` | `leap.sh`, `ligand_prep.sh`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `python/generate_pmemd_inputs.py`, `python/generate_md_slurm.py`, `python/model_prep.py`, `python/traj_utils.py`, `R/ions.R`, `R/md_utils.R`, `pmemd/in/` (+ `archive/`), `slurm/PrepAndMin.slurm` |
 
 ---
 
@@ -715,6 +748,21 @@ aptamer → `ligand_number = 47`.
 | `plot_pxe(pxe, type, ..., width, height, dpi, show_title, show_subtitle)` | One element from `process_pxe()` | Faceted PNG per region (DNA / Ligand); optional size, DPI, and title control |
 | `plot_plddt(project, ..., width, height, dpi, show_title, show_subtitle)` | All `*_plddt.csv` files in project | Faceted line-plot PNG per experiment; optional size, DPI, and title control |
 
+### 6.4 Troubleshooting — Boltz-2 Prediction Pipeline
+
+| Issue | Likely Cause | Solution |
+|-------|-------------|----------|
+| No YAML files generated | Python error in the script | Run `python {project}/input_file_generator.py` and read the traceback |
+| No SLURM files generated | YAML step did not complete | Fix YAML generation first; SLURM scripts depend on YAML output |
+| PyMOL: `command not found` | `pymol-open-source` not installed | `conda install -c conda-forge pymol-open-source` |
+| RDKit: chirality grid empty | Ligand SDF extraction failed | Verify `LGD_DICT` / `NAME_MAP` mapping matches the YAML ligand names |
+| R: `object 'process_confidence' not found` | `processor.R` not sourced | Check path in `source('boltz_R_utils/processor.R')` |
+| R: conda environment not active | `install_packages.R` not run first | Run `source('boltz_R_utils/install_packages.R')` once |
+| R: CSV files not found | Python post-processing not run | Run `output_file_processing.py` first |
+| `_constrained` jobs missing | `additional_pairs` resolves to empty | Check contact-constraint format in Appendix 11 |
+| Custom MSA not used | File not found or named wrong | Place `{seq_name}.a3m` in `{project}/msa/` and set `custom_msa = True` |
+| PyMOL session colours wrong | Unexpected chain/residue naming in CIF | Check the CIF output; may need adjustments in `base.py` |
+
 ---
 
 ## 7. Molecule Type Support
@@ -737,23 +785,7 @@ the pipeline handles different biopolymers:
 The ligand-extraction and chirality-analysis components are
 molecule-type agnostic and work for any system.
 
-### 7.1 Troubleshooting — Boltz-2 Prediction Pipeline
-
-| Issue | Likely Cause | Solution |
-|-------|-------------|----------|
-| No YAML files generated | Python error in the script | Run `python {project}/input_file_generator.py` and read the traceback |
-| No SLURM files generated | YAML step did not complete | Fix YAML generation first; SLURM scripts depend on YAML output |
-| PyMOL: `command not found` | `pymol-open-source` not installed | `conda install -c conda-forge pymol-open-source` |
-| RDKit: chirality grid empty | Ligand SDF extraction failed | Verify `LGD_DICT` / `NAME_MAP` mapping matches the YAML ligand names |
-| R: `object 'process_confidence' not found` | `processor.R` not sourced | Check path in `source('boltz_R_utils/processor.R')` |
-| R: conda environment not active | `install_packages.R` not run first | Run `source('boltz_R_utils/install_packages.R')` once |
-| R: CSV files not found | Python post-processing not run | Run `output_file_processing.py` first |
-| `_constrained` jobs missing | `additional_pairs` resolves to empty | Check contact-constraint format in Appendix 11 |
-| Custom MSA not used | File not found or named wrong | Place `{seq_name}.a3m` in `{project}/msa/` and set `custom_msa = True` |
-| PyMOL session colours wrong | Unexpected chain/residue naming in CIF | Check the CIF output; may need adjustments in `base.py` |
-
 ---
-
 
 ## 8. MD Force-Field Parameterisation Pipeline
 
@@ -768,7 +800,7 @@ simulations that complement the Boltz-2 structure predictions.
 ```
                             ┌──────────────────────────────────────────┐
                             │  QM Geometry Optimisation (external*)    │
-                            │  →  QM/<MOL>.xyz  (or .mol2)             │
+                            │  →  QM/<mol>.xyz  (or .mol2)             │
                             └──────────────────────────────────────────┘
                                             │
                                             ▼
@@ -844,8 +876,14 @@ Before running the RESP2 charge pipeline, you need an optimised 3D geometry
 of your ligand.  This step is **not** covered by a template because the
 choice of QM package and workflow is project-specific.
 
-**Expected file:** `QM/<mol>_opt.xyz` — optimised geometry in XYZ format.
+**Expected file:** `QM/<mol>.xyz` — optimised geometry in XYZ format.
 (Both `.xyz` and `.mol2` are accepted — see Step 3 below for the fallback.)
+
+> **Naming convention:** Throughout §8, `<mol>` is the ligand's base name
+> (e.g. `hcy`).  The optimised structure is `QM/<mol>.xyz` / `QM/<mol>.mol2`,
+> and the RESP2 charge file is `QM/<mol>_opt.chg` — the `_opt` suffix marks
+> charges derived from the *optimised* geometry.  All steps below must use
+> the same base name so the files line up.
 
 If you already have a CCD ligand from the PDB, you may use its geometry
 directly.  For novel ligands, run a geometry optimisation in your preferred
@@ -866,10 +904,10 @@ header (required for Multiwfn RESP fitting with def2 ECP basis sets).
 
 **Usage:**
 ```bash
-./orca_steps_wsl.sh QM/<mol>_opt.xyz [charge] [multiplicity] [solvent]
+./orca_steps_wsl.sh QM/<mol>.xyz [charge] [multiplicity] [solvent]
 ```
 
-**Inputs required:** `QM/<mol>_opt.xyz`
+**Inputs required:** `QM/<mol>.xyz`
 
 **Outputs:**
 - `SP_gas.molden` — Gas-phase Molden file
@@ -901,7 +939,9 @@ i.e. RESP2-0.5).
 - `SP_solv.molden` — copied from WSL to Windows
 
 **Deliverable:** `QM/<input_name>.chg` — RESP2 charges for the ligand
-(also produces intermediate `gas.chg` and `solv.chg`)
+(also produces intermediate `gas.chg` and `solv.chg`).  Pass
+`<input_name> = <mol>_opt` (e.g. `hcy_opt`) so the output lands at
+`QM/<mol>_opt.chg`, matching what `ligand_prep.sh` expects (§8.6).
 
 **Edits required in template:** Multiwfn executable path, Molden directory,
 output directory.
@@ -934,28 +974,29 @@ from the `QM/` directory and runs the AmberTools pipeline:
 3. **Prepgen** — generates an Amber prepin library file.
 4. **Parmchk2** — checks for missing force-field parameters (frcmod).
 
-If `QM/<MOL>.mol2` is not found, the script automatically looks for
-`QM/<MOL>.xyz` and attempts conversion via antechamber or OpenBabel.
+If `QM/<mol>.mol2` is not found, the script automatically looks for
+`QM/<mol>.xyz` and attempts conversion via antechamber or OpenBabel.
 
 **Usage:**
 ```bash
 ./ligand_prep.sh
 ```
-(Edit `MOL`, `NC`, and `S` at the top of the script for your ligand.)
+(Edit `MOL`, `NC`, and `S` at the top of the script for your ligand; set
+`MOL` to the same base name `<mol>` used in the steps above.)
 
 **Inputs required:**
-- `QM/<MOL>.mol2` (preferred) or `QM/<MOL>.xyz` (fallback) — optimised
+- `QM/<mol>.mol2` (preferred) or `QM/<mol>.xyz` (fallback) — optimised
   ligand structure
-- `QM/<MOL>_opt.chg` — RESP2 charges from Step 2
+- `QM/<mol>_opt.chg` — RESP2 charges from Step 2
 
 **Outputs:**
-- `ff/<MOL>_resp.prepin` — Amber prepin library
-- `ff/<MOL>_resp.frcmod` — Force-field modifications
-- `ff/<MOL>_resp.pdb` — PDB-like file for tLeap complex preparation (element
+- `ff/<mol>_resp.prepin` — Amber prepin library
+- `ff/<mol>_resp.frcmod` — Force-field modifications
+- `ff/<mol>_resp.pdb` — PDB-like file for tLeap complex preparation (element
   symbols in columns 77-78 are auto-added by `fix_pdb_elements.py`)
 
 **Post-processing (automatic):** After copying the Amber AC file to
-`ff/<MOL>_resp.pdb`, `ligand_prep.sh` automatically runs
+`ff/<mol>_resp.pdb`, `ligand_prep.sh` automatically runs
 `fix_pdb_elements.py` to insert the correct element symbol in PDB columns
 77-78 (detected from the atom name in columns 13-16).  This ensures that
 molecular viewers (PyMOL, VMD) correctly recognise multi-character elements
@@ -1147,7 +1188,7 @@ command directly to the console.
 | `SP_gas.molden` not found | WSL→Windows copy not performed | Copy Molden files from WSL to `<MoldenDir>` before running the PS1 script |
 | Multiwfn fails silently (Windows) | Batch wrapper issue | Check host output for errors; verify Multiwfn path in the PS1 script |
 | Multiwfn fails (Linux) | Missing input or wrong path | Ensure `$Multiwfn` path is correct and the molden files exist |
-| `mol2` file not found in `QM/` | Wrong filename or directory | Name the file `<MOL>.mol2` and place in `QM/`; or provide `<MOL>.xyz` as fallback |
+| `mol2` file not found in `QM/` | Wrong filename or directory | Name the file `<mol>.mol2` and place in `QM/`; or provide `<mol>.xyz` as fallback |
 | `.xyz` → `.mol2` conversion fails | Missing converter | Install `antechamber` (AmberTools) or `obabel` (OpenBabel) |
 | RESP2 charges look wrong | Atom ordering mismatch | Verify identical atom ordering between `.mol2` and `.chg` files |
 | PyMOL: `prep_model()` fails | Missing job directory | Check that the Boltz-2 prediction CIFs are in the expected path; use `--job` explicitly |
@@ -1213,30 +1254,32 @@ PrepAndMin.slurm  (SLURM array job — submit via sbatch)
 Output directories:
   pmemd/out/<EXPERIMENT>/J<jobid>/task_<N>/
   ├── prep/
-  │   ├── step1{N}.out, .ncrst, .nc, .info      — per-step files
-  │   ├── step2{N}.out, .ncrst, .nc, .info
-  │   ├── ...
+  │   ├── step{N}.out, .ncrst, .nc, .info      — per-step files
+  │   │   (N = task replicate, see §9.6 for full naming)
   │   ├── pdb/
-  │   │   ├── step1{N}.pdb
+  │   │   ├── step{N}.pdb
   │   │   └── ...
   │   ├── traj/
-  │   │   ├── step10{N}_stripped.prmtop          — stripped topology
-  │   │   ├── step10{N}_stripped.nc              — stripped trajectory
-  │   │   ├── step10_2drmsd{N}.dat               — 2D RMSD matrix
-  │   │   └── step10_atomicfluct{N}.dat          — RMSF by residue
+  │   │   ├── step10_{N}_stripped.prmtop        — stripped topology
+  │   │   ├── step10_{N}_stripped.nc            — stripped trajectory
+  │   │   ├── step10_2drmsd_{N}.dat             — 2D RMSD matrix
+  │   │   └── step10_atomicfluct_{N}.dat        — RMSF by residue
   │   └── cpptraj/
-  │       ├── step10_stripped{N}.cpptraj
-  │       └── step10_analysis{N}.cpptraj
+  │       ├── step10_stripped_{N}.cpptraj
+  │       └── step10_analysis_{N}.cpptraj
   ├── final_min/
-  │   ├── final_min{N}.out, .ncrst, .info
+  │   ├── final_min_{N}.out, .ncrst, .info
   │   ├── pdb/
-  │   │   ├── final_min{N}_cpptrajed.pdb
-  │   │   └── final_min{N}_stripped.pdb
+  │   │   ├── final_min_{N}_cpptrajed.pdb
+  │   │   └── final_min_{N}_stripped.pdb
   │   └── cpptraj/
-  │       ├── final_min_stripped{N}.cpptraj
-  │       └── final_min{N}.cpptraj
+  │       ├── final_min_stripped_{N}.cpptraj
+  │       └── final_min_{N}.cpptraj
   └── run.info                                    — job metadata
 ```
+
+> In the tree above, `{N}` abbreviates the `_{TASK}_J{JOBID}` suffix appended
+> to every output filename (e.g. `step1_3_J12345.out`); see §9.6.
 
 ### 9.2 SLURM Script Generation
 
@@ -1539,7 +1582,7 @@ metadata from the file path, which must follow the pattern:
 - Path component `[5]` → experiment (e.g. `CSS1_rep1` → `CSS1·rep1`)
 - Path component `[7]` → model name (e.g. `wildtype`)
 
-#### Usage
+#### Usage Example
 
 ```r
 source("md_utils.R")
@@ -1580,7 +1623,7 @@ by project-specific entry-point scripts (e.g. `final_min_pymol.py`).
 | `color_constrained_residues(constraints)` | Build a graph from constraint pairs, find connected components via BFS, and assign each component a unique colour from the `CONSTRAINT_COLORS` palette.  Automatically falls back to residue-number-only selection when chain IDs are absent in the PDB. |
 | `generate_minimized_viewer(project, experiment, job)` | Generate a multi-snapshot Mol* web viewer file (.mvsj) for the minimised structures, with DNA bases coloured by type (A→lightblue, C→plum, G→tan, T→lightgreen).  Produces one snapshot per task replicate with illustrative-style cartoon rendering + outline. |
 
-#### Usage
+#### Usage Examples
 
 ```python
 # Import all three functions
@@ -1651,6 +1694,51 @@ detects this automatically: if the referenced chains are not found among the
 loaded objects, the chain filter is dropped and residues are selected by
 residue number only.
 
+### 9.12 MD Trajectory Visualisation (Mol*)
+
+**Script:** `templates/MD/python/traj_utils.py` → copy to
+`{project}/MD/python/` (included in the `cp -r templates/MD/*` copy step
+in §2.2).
+
+Generates interactive **Mol*** web viewer (https://molstar.org/viewer/)
+files from the Amber MD trajectory data produced by §9 (prmtop + NetCDF
+trajectory pairs).  Each task (replica) becomes a snapshot with its
+topology and trajectory loaded — polymer as a cartoon, ligand in
+ball-and-stick — so the production run can be explored in the browser
+instead of opening PyMOL.
+
+#### Functions
+
+| Function | Description |
+|----------|-------------|
+| `find_trajectory_pairs(job_dir)` | Discover `(task_name, prmtop_path, nctraj_path)` tuples from each task's `prep/traj/` directory.  Trajectories are matched to topologies by prefix against the `*_stripped.prmtop` file; tasks without a `prep/traj/` directory are skipped. |
+| `generate_trajectory_viewer(project, experiment, job, verbose=True, base_url=None)` | Build a multi-snapshot `.mvsj` file (one snapshot per task) from the discovered trajectory pairs.  Set `base_url` to a root URL to embed absolute data paths (e.g. for remote hosting); the default `None` writes paths relative to the MVSJ for local viewing. |
+
+#### Usage Example
+
+```python
+from traj_utils import generate_trajectory_viewer
+
+# Single job
+generate_trajectory_viewer("my_project", "Seq1_L01_constrained", "J1234567")
+
+# All jobs in a project
+import os
+output_root = "my_project/MD/pmemd/out"
+for exp in sorted(os.listdir(output_root)):
+    for job in os.listdir(os.path.join(output_root, exp)):
+        generate_trajectory_viewer("my_project", exp, job)
+```
+
+The output is one `.mvsj` file per job at:
+
+```
+{project}/MD/pmemd/out/{experiment}/{job}/{experiment}_{job}_trajectory.mvsj
+```
+
+**Requires** the `molviewspec` Python package and the trajectory pairs in
+`prep/traj/` (`*_stripped.prmtop` + `*_stripped.nc`) described in §9.6.
+
 ---
 
 ## 10. File Reference
@@ -1697,6 +1785,7 @@ residue number only.
 | `templates/MD/pmemd/in/final_min.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5) |
 | `templates/MD/python/generate_md_slurm.py` | `experiment`, `array`, `scratchdir`, `gpu`, `residues`, `solvent` — generates a configured `.slurm` from `PrepAndMin.slurm` (§9.2) |
 | `templates/MD/python/pymol_utils.py` | No edits required — reusable functions imported by project scripts; also generates Mol* viewer (.mvsj) files as an interactive alternative to PyMOL sessions (§9.11) |
+| `templates/MD/python/traj_utils.py` | No edits required — reusable functions imported by project scripts; generates Mol* trajectory viewer (.mvsj) files from Amber MD trajectories (§9.12) |
 | `templates/MD/slurm/PrepAndMin.slurm` | Template with `__PLACEHOLDER__` markers; used by `generate_md_slurm.py` (§9.1) |
 
 ---
