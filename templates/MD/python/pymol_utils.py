@@ -156,13 +156,14 @@ _PYMOL_COLOR_TO_HEX = {
 # =====================================================================
 
 
-def load_constraints(project, experiment, verbose=True):
+def load_constraints(project, experiment, verbose=True, stem_length=0):
     """
     Load unique contact constraints from the YAML file for a constrained
     experiment.
 
     Only loads constraints if *experiment* contains the ``"_constrained"``
-    suffix.
+    suffix.  When *stem_length* is > 0, any constraint whose DNA strand
+    residue number is within the stem region (``<= stem_length``) is dropped.
 
     Parameters
     ----------
@@ -172,6 +173,8 @@ def load_constraints(project, experiment, verbose=True):
         Experiment name (e.g. ``"Seq1_C0R_constrained"``).
     verbose : bool, default True
         If False, suppresses status prints to stdout.
+    stem_length : int, default 0
+        Number of stem residues to exclude from constraint colouring.
 
     Returns
     -------
@@ -217,6 +220,10 @@ def load_constraints(project, experiment, verbose=True):
         if token1 is None or token2 is None:
             continue
         if len(token1) != 2 or len(token2) != 2:
+            continue
+        if stem_length > 0 and (
+            token1[1] <= stem_length or token2[1] <= stem_length
+        ):
             continue
         pair = frozenset({(token1[0], token1[1]), (token2[0], token2[1])})
         unique_pairs.add(pair)
@@ -600,7 +607,8 @@ _ELEMENT_COLORS = {
 
 def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None,
                           constraint_ann_uri=None,
-                          constrained_base_white=False):
+                          constrained_base_white=False,
+                          base_ann_uri=None):
     """Core: build and write a multi-snapshot MVSJ from the given PDBs.
 
     Parameters
@@ -623,6 +631,11 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None,
         When True (and a constraint annotation is supplied), unconstrained
         residues are drawn white so the coloured constraint components stand
         out (matches the Boltz-2 constraint viewer).
+    base_ann_uri : str | None
+        Optional ``data:application/json;base64,`` URI for a Mol* residue
+        colour annotation that colours specific DNA residues by base identity
+        (essential bases). When provided, the cartoon is drawn white with
+        only the annotated residues coloured.
     """
     snapshots = []
 
@@ -718,7 +731,15 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None,
             type="cartoon",
             custom={"molstar_representation_params": {"ignoreLight": True}},
         )
-        if constraint_ann_uri and constrained_base_white:
+        if base_ann_uri:
+            poly_rep.color(color="white")
+            poly_rep.color_from_uri(
+                uri=base_ann_uri,
+                format="json",
+                schema="residue",
+                field_name="color",
+            )
+        elif constraint_ann_uri and constrained_base_white:
             poly_rep.color(color="white")
         else:
             poly_rep.color(color=_DNA_COLOR)
@@ -766,7 +787,8 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None,
         print(f"  Wrote MD minimised MVSJ: {output_path}")
 
 
-def generate_minimized_viewer(project, experiment, job, verbose=True):
+def generate_minimized_viewer(project, experiment, job, verbose=True,
+                              stem_length=0):
     """Generate a multi-snapshot .mvsj file from Amber MD minimised PDBs.
 
     Colours DNA bases by type matching the PyMOL session colours:
@@ -791,6 +813,8 @@ def generate_minimized_viewer(project, experiment, job, verbose=True):
         Job identifier (e.g. ``"J1129505"``).
     verbose : bool, default True
         If False, suppresses status prints.
+    stem_length : int, default 0
+        Number of stem residues to exclude from constraint colouring.
     """
     job_dir = os.path.join(project, "MD", "pmemd", "out", experiment, job)
     pdb_paths = find_minimized_pdbs(job_dir)
@@ -818,7 +842,8 @@ def generate_minimized_viewer(project, experiment, job, verbose=True):
     # section) so which constraints were applied / survived is visible.
     constraint_ann_uri = None
     if "_constrained" in experiment:
-        constraints = load_constraints(project, experiment, verbose=verbose)
+        constraints = load_constraints(project, experiment, verbose=verbose,
+                                       stem_length=stem_length)
         if constraints:
             annotation = constraint_residue_annotation(constraints)
             if annotation:
@@ -833,13 +858,117 @@ def generate_minimized_viewer(project, experiment, job, verbose=True):
     )
 
 
+def _essential_base_annotation_from_pdb(pdb_path, essential_seqids):
+    """Build a Mol* residue-colour annotation for essential DNA bases.
+
+    Scans the nucleic residues of *pdb_path*; residues whose sequence number
+    is in ``essential_seqids`` are coloured by base identity via
+    :data:`_BASE_COLORS`. Blank chain IDs are forced to ``"A"`` to match the
+    embedded PDB. Returns a list of dicts ready to JSON-serialize as a Mol*
+    ``schema = "residue"`` colour annotation (possibly empty).
+    """
+    structure = gemmi.read_structure(str(pdb_path))
+    for model in structure:
+        for chain in model:
+            if not chain.name.strip():
+                chain.name = "A"
+
+    annotation = []
+    for model in structure:
+        for chain in model:
+            chain_id = chain.name.strip()
+            for residue in chain:
+                base = _resolve_base(residue.name)
+                if base is None:
+                    continue
+                seqid = residue.seqid.num
+                if seqid in essential_seqids:
+                    annotation.append({
+                        "label_asym_id": chain_id,
+                        "label_seq_id": seqid,
+                        "color": _BASE_COLORS[base],
+                    })
+    return annotation
+
+
+def generate_minimized_essential_viewer(project, experiment, job, seq,
+                                        stem_length, bases, verbose=True):
+    """Generate a multi-snapshot .mvsj colouring essential DNA bases.
+
+    Like :func:`generate_minimized_viewer`, but the DNA cartoon is drawn
+    white with only the essential residues (``base + stem_length`` for each
+    base number in *bases*) coloured by base identity (adenine lightblue,
+    cytosine plum, guanine tan, thymine lightgreen).
+
+    The MVSJ file is written to the job directory with the name::
+
+        {experiment}_{job}_final_min_essential.mvsj
+
+    Parameters
+    ----------
+    project : str
+        Project directory name (e.g. ``"CSS"``, ``"PQ4"``).
+    experiment : str
+        Experiment name (e.g. ``"CSS1_HCY_constrained"``).
+    job : str
+        Job identifier (e.g. ``"J1127346"``).
+    seq : str
+        Sequence label (e.g. ``"CSS1"``), used in the display title.
+    stem_length : int
+        Number of stem residues to add to each base number.
+    bases : list of int
+        Essential base numbers within the aptamer region excluding the stem.
+    verbose : bool, default True
+        If False, suppresses status prints.
+    """
+    job_dir = os.path.join(project, "MD", "pmemd", "out", experiment, job)
+    pdb_paths = find_minimized_pdbs(job_dir)
+
+    if not pdb_paths:
+        if verbose:
+            print(f"  No stripped PDBs found in {job_dir}")
+        return
+
+    essential_seqids = {b + stem_length for b in bases}
+    annotation = _essential_base_annotation_from_pdb(pdb_paths[0], essential_seqids)
+    if not annotation:
+        if verbose:
+            print("  No essential DNA residues found -- skipping essential MVSJ generation.")
+        return
+
+    ann_bytes = json.dumps(annotation).encode()
+    ann_b64 = base64.b64encode(ann_bytes).decode()
+    base_ann_uri = f"data:application/json;base64,{ann_b64}"
+
+    output_path = os.path.join(job_dir, f"{experiment}_{job}_final_min_essential.mvsj")
+
+    if "free" in experiment:
+        label = "Free"
+    elif "HCY" in experiment:
+        label = "HCY bound"
+    elif "PQ" in experiment:
+        label = "PQ bound"
+    else:
+        label = experiment
+    mvs_title = f"{seq} \u00B7 {label} \u00B7 essential bases"
+
+    _write_minimized_mvsj(
+        pdb_paths, output_path, verbose, title=mvs_title,
+        base_ann_uri=base_ann_uri,
+    )
+
+
 # =====================================================================
 #  Constraint verification for minimised structures
 # =====================================================================
 
-def _parse_constraint_pairs(yaml_path):
+def _parse_constraint_pairs(yaml_path, stem_length=0):
     """
     Parse unique contact constraints from a Boltz-2 YAML file.
+
+    When *stem_length* is > 0, any constraint whose DNA strand residue
+    number is within the stem region (``<= stem_length``) is dropped
+    (stem base pairs are structural, not informative contacts).
 
     Returns
     -------
@@ -859,6 +988,10 @@ def _parse_constraint_pairs(yaml_path):
         if token1 is None or token2 is None:
             continue
         if len(token1) != 2 or len(token2) != 2:
+            continue
+        if stem_length > 0 and (
+            token1[1] <= stem_length or token2[1] <= stem_length
+        ):
             continue
         pair = tuple(sorted({(token1[0], token1[1]), (token2[0], token2[1])}))
         unique_pairs[pair] = float(contact.get("max_distance", 4.0))
@@ -913,7 +1046,7 @@ def _min_heavy_atom_distance(atom_arrays, pair):
 
 
 def process_minimized_constraint_verification(project, experiment, job,
-                                              verbose=True):
+                                              verbose=True, stem_length=0):
     """
     Compute per-task satisfaction of contact restraints for one MD job.
 
@@ -947,6 +1080,9 @@ def process_minimized_constraint_verification(project, experiment, job,
     job : str
     verbose : bool
         Print progress messages to stdout (default True).
+    stem_length : int, default 0
+        Number of stem residues to exclude from verification (any
+        constraint with a residue number ``<= stem_length`` is dropped).
 
     Returns
     -------
@@ -959,7 +1095,7 @@ def process_minimized_constraint_verification(project, experiment, job,
             print(f"  YAML file not found for {project}/{experiment} — "
                   "skipping minimised constraint verification.")
         return None
-    constraints = _parse_constraint_pairs(yaml_path)
+    constraints = _parse_constraint_pairs(yaml_path, stem_length=stem_length)
     if not constraints:
         if verbose:
             print(f"  No contact constraints found in {yaml_path}.")
