@@ -282,9 +282,18 @@ process_constraints <- function(project, keep = NULL) {
   # Returns a data.table ordered by sequence -> condition -> model.
   constraint_files <- list.files(
     path = project,
-    pattern = "_constraints\\.csv",
+    pattern = "_constraints\\.csv$",
     recursive = TRUE,
     full.names = TRUE
+  )
+  # Exclude the MD minimised-structure verification files
+  # (*_minimized_constraints.csv), which are handled by
+  # read_minimized_constraints() instead.
+  constraint_files <- grep(
+    "(?<!_minimized)_constraints\\.csv$",
+    constraint_files,
+    value = TRUE,
+    perl = TRUE
   )
 
   constraint_dt <- lapply(constraint_files, function(x) {
@@ -340,7 +349,9 @@ process_constraints <- function(project, keep = NULL) {
 
 table_constraints <- function(constraint_dt, seq,
                               project = get("project", parent.frame()),
-                              page_length = 25) {
+                              page_length = 25,
+                              element_id = NULL,
+                              outfile = NULL) {
   # Render an interactive DT::datatable of constraint verification results
   # for a single sequence, wrapped in a Bootstrap 5 theme (bslib) and saved
   # as a standalone HTML page (per sequence).
@@ -348,11 +359,15 @@ table_constraints <- function(constraint_dt, seq,
   # Rows are one per model; columns show the condition label, model index,
   # restraint count, number of satisfied restraints (colour bar), a
   # verified check/cross, and a list of the non-verified restraints.
+  #
+  # element_id / outfile optionally override the default widget id and the
+  # standalone HTML output path (used when embedding the table directly in
+  # the report); when NULL the original per-sequence behaviour is kept.
   dt <- copy(constraint_dt[sequence == seq])
   if (nrow(dt) == 0) {
     return(NULL)
   }
-  dt[, c("sequence", "model_name", "experiment") := NULL]
+  dt[, intersect(c("sequence", "model_name", "experiment"), names(dt)) := NULL]
   dt[, verified := fifelse(all_verified == 1, "\u2713", "\u2717")]
   setcolorder(
     dt,
@@ -369,10 +384,12 @@ table_constraints <- function(constraint_dt, seq,
       "Verified", "Non-verified restraints", "Worst min. distance (\u00C5)")
   )
 
-  element_id <- paste0(
-    "constraint_table_",
-    gsub("[^A-Za-z0-9]", "_", tolower(seq))
-  )
+  if (is.null(element_id)) {
+    element_id <- paste0(
+      "constraint_table_",
+      gsub("[^A-Za-z0-9]", "_", tolower(seq))
+    )
+  }
 
   display_table <- DT::datatable(
     dt,
@@ -421,21 +438,28 @@ table_constraints <- function(constraint_dt, seq,
       backgroundPosition = "center"
     )
 
-  # Standalone themed HTML page, one file per sequence
-  bs_theme <- bslib::bs_theme(
-    version = 5,
-    bootswatch = "flatly",
-    base_font = bslib::font_google("Inter")
-  )
-  themed_page <- bslib::page_fluid(
-    title = paste0("Constraint Verification \u2014 ", seq),
-    theme = bs_theme,
-    display_table
-  )
-  htmltools::save_html(
-    themed_page,
-    file = file.path(project, paste0("constraint_verification_", tolower(seq), ".html"))
-  )
+  # Standalone themed HTML page, one file per sequence. outfile = NA skips
+  # the standalone page (used when the table is embedded directly in the
+  # report), any path overrides the default project location.
+  if (is.null(outfile)) {
+    outfile <- file.path(
+      project,
+      paste0("constraint_verification_", tolower(seq), ".html")
+    )
+  }
+  if (!is.na(outfile)) {
+    bs_theme <- bslib::bs_theme(
+      version = 5,
+      bootswatch = "flatly",
+      base_font = bslib::font_google("Inter")
+    )
+    themed_page <- bslib::page_fluid(
+      title = paste0("Constraint Verification \u2014 ", seq),
+      theme = bs_theme,
+      display_table
+    )
+    htmltools::save_html(themed_page, file = outfile)
+  }
 
   display_table
 }

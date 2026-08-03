@@ -69,10 +69,37 @@ import tempfile
 import gemmi
 import molviewspec as mvs
 from molviewspec.nodes import States, GlobalMetadata
+import numpy as np
+import pandas as pd
 import yaml
 # PyMOL is imported lazily inside functions that use it (process_final_min,
 # color_constrained_residues) so that generate_minimized_viewer and other
 # non-PyMOL utilities can be imported without a PyMOL installation.
+
+
+# =====================================================================
+#  YAML resolution
+# =====================================================================
+
+# MD experiment names may not match the Boltz-2 YAML file name (e.g. the PQ4
+# bound experiment is "PQ4_PQ_constrained" but its YAML is named after the
+# ligand "Piperaquine").  Map experiment -> YAML stem when they differ.
+_YAML_ALIASES = {
+    "PQ4_PQ_constrained": "PQ4_Piperaquine_constrained",
+}
+
+
+def _yaml_path(project, experiment):
+    """Return the Boltz-2 YAML path for an MD experiment, or None."""
+    path = f"{project}/yaml/{experiment}.yaml"
+    if os.path.exists(path):
+        return path
+    alt = _YAML_ALIASES.get(experiment)
+    if alt:
+        path = f"{project}/yaml/{alt}.yaml"
+        if os.path.exists(path):
+            return path
+    return None
 
 
 # =====================================================================
@@ -89,6 +116,39 @@ CONSTRAINT_COLORS = [
     "tan", "silver", "forest", "ruby", "hotpink",
 ]
 
+# Hex approximation of each PyMOL name above.  The Mol* viewer's colour
+# parser only understands hex (or CSS names); PyMOL names such as
+# "palecyan"/"lightorange"/"lightmagenta" are not valid CSS colours and
+# would make whole constraint components invisible.  These match the
+# palette used by boltz2_utils/generate_web_viewer.py.
+_PYMOL_COLOR_TO_HEX = {
+    "palecyan": "#AFEEEE",
+    "palegreen": "#98FB98",
+    "paleyellow": "#FFFF99",
+    "lightpink": "#FFB6C1",
+    "lightblue": "#ADD8E6",
+    "lightorange": "#FFD27F",
+    "lightmagenta": "#FFB3FF",
+    "slate": "#C0C0C0",
+    "teal": "#008080",
+    "violet": "#EE82EE",
+    "salmon": "#FA8072",
+    "lime": "#00FF00",
+    "skyblue": "#87CEEB",
+    "wheat": "#F5DEB3",
+    "olive": "#808000",
+    "deepteal": "#008B8B",
+    "aquamarine": "#7FFFD4",
+    "raspberry": "#E30B5C",
+    "darksalmon": "#E9967A",
+    "pink": "#FFC0CB",
+    "tan": "#D2B48C",
+    "silver": "#C0C0C0",
+    "forest": "#228B22",
+    "ruby": "#FF2400",
+    "hotpink": "#FF69B4",
+}
+
 
 # =====================================================================
 #  Constraint loading and PyMOL colouring
@@ -96,7 +156,7 @@ CONSTRAINT_COLORS = [
 # =====================================================================
 
 
-def load_constraints(project, experiment):
+def load_constraints(project, experiment, verbose=True):
     """
     Load unique contact constraints from the YAML file for a constrained
     experiment.
@@ -110,6 +170,8 @@ def load_constraints(project, experiment):
         Project directory name (e.g. ``"CSS"``).
     experiment : str
         Experiment name (e.g. ``"Seq1_C0R_constrained"``).
+    verbose : bool, default True
+        If False, suppresses status prints to stdout.
 
     Returns
     -------
@@ -122,23 +184,27 @@ def load_constraints(project, experiment):
     """
     # Only attempt loading if the experiment name indicates constraints
     if "_constrained" not in experiment:
-        print("Experiment name does not indicate constraints — skipping YAML loading.")
+        if verbose:
+            print("Experiment name does not indicate constraints — skipping YAML loading.")
         return None
 
     # 1. Locate YAML file for this experiment
-    yaml_path = f"{project}/yaml/{experiment}.yaml"
-    if not os.path.exists(yaml_path):
-        print(f"YAML file not found: {yaml_path}")
+    yaml_path = _yaml_path(project, experiment)
+    if yaml_path is None:
+        if verbose:
+            print(f"YAML file not found for {project}/{experiment} (aliases: {_YAML_ALIASES})")
         return None
 
-    print(f"Loading constraints from: {yaml_path}")
+    if verbose:
+        print(f"Loading constraints from: {yaml_path}")
     with open(yaml_path) as fh:
         data = yaml.safe_load(fh)
 
     # 2. Extract raw constraint list
     constraints_raw = data.get("constraints", [])
     if not constraints_raw:
-        print("No constraints section found in YAML file.")
+        if verbose:
+            print("No constraints section found in YAML file.")
         return None
 
     # 3. Deduplicate using frozenset so order doesn't matter,
@@ -156,8 +222,76 @@ def load_constraints(project, experiment):
         unique_pairs.add(pair)
 
     constraints_list = [tuple(sorted(p)) for p in unique_pairs]
-    print(f"Extracted {len(constraints_list)} unique constraint pairs.")
+    if verbose:
+        print(f"Extracted {len(constraints_list)} unique constraint pairs.")
     return constraints_list
+
+
+def _constraint_components(constraints):
+    """Return connected components of the constraint residue graph (BFS).
+
+    Each component is a ``set`` of ``(chain, resnum)`` nodes.  Residues
+    joined transitively through the constraint pairs end up in the same
+    component and therefore share one colour in the viewer.
+
+    Parameters
+    ----------
+    constraints : list of tuple
+        List of ``((chain_i, res_i), (chain_j, res_j))`` pairs as returned
+        by :func:`load_constraints`.
+
+    Returns
+    -------
+    list of set
+    """
+    graph = {}
+    for (node1, node2) in constraints:
+        graph.setdefault(node1, set()).add(node2)
+        graph.setdefault(node2, set()).add(node1)
+
+    visited = set()
+    components = []
+    for node in graph:
+        if node in visited:
+            continue
+        queue = [node]
+        component = set()
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            component.add(current)
+            for neighbour in graph.get(current, []):
+                if neighbour not in visited:
+                    queue.append(neighbour)
+        components.append(component)
+    return components
+
+
+def constraint_residue_annotation(constraints):
+    """Build a Mol* residue-colour annotation from constraint components.
+
+    Each connected component of constrained residues gets the next colour
+    from :data:`CONSTRAINT_COLORS`, matching the Boltz-2 constraint viewer.
+    Colours are emitted as hex (via :data:`_PYMOL_COLOR_TO_HEX`) because
+    the Mol* viewer cannot parse bare PyMOL colour names.
+
+    Returns a list of dicts ready to JSON-serialize as a Mol* ``schema =
+    "residue"`` colour annotation, or an empty list if there are no
+    constraints.
+    """
+    annotation = []
+    for idx, component in enumerate(_constraint_components(constraints)):
+        name = CONSTRAINT_COLORS[idx % len(CONSTRAINT_COLORS)]
+        color = _PYMOL_COLOR_TO_HEX.get(name, name)
+        for (chain, resnum) in component:
+            annotation.append({
+                "label_asym_id": chain,
+                "label_seq_id": resnum,
+                "color": color,
+            })
+    return annotation
 
 
 def color_constrained_residues(constraints):
@@ -464,7 +598,9 @@ _ELEMENT_COLORS = {
 }
 
 
-def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None):
+def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None,
+                          constraint_ann_uri=None,
+                          constrained_base_white=False):
     """Core: build and write a multi-snapshot MVSJ from the given PDBs.
 
     Parameters
@@ -477,6 +613,16 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None):
     title : str | None
         Display title for the MVSJ metadata. Defaults to the output
         basename without extension.
+    constraint_ann_uri : str | None
+        Optional ``data:application/json;base64,`` URI for a Mol* residue
+        colour annotation. When provided, the DNA cartoon is coloured by
+        constraint component (each connected component a distinct colour),
+        replacing the uniform base colour. Unconstrained residues keep the
+        base colour.
+    constrained_base_white : bool, default False
+        When True (and a constraint annotation is supplied), unconstrained
+        residues are drawn white so the coloured constraint components stand
+        out (matches the Boltz-2 constraint viewer).
     """
     snapshots = []
 
@@ -565,13 +711,24 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None):
         ps = ds.parse(format="pdb")
         ms = ps.model_structure()
 
-        # Polymer (DNA) → cartoon with uniform calm color
+        # Polymer (DNA) → cartoon: neutral base, then constraint-component
+        # colouring on top where supplied
         poly = ms.component(selector="polymer")
         poly_rep = poly.representation(
             type="cartoon",
             custom={"molstar_representation_params": {"ignoreLight": True}},
         )
-        poly_rep.color(color=_DNA_COLOR)
+        if constraint_ann_uri and constrained_base_white:
+            poly_rep.color(color="white")
+        else:
+            poly_rep.color(color=_DNA_COLOR)
+        if constraint_ann_uri:
+            poly_rep.color_from_uri(
+                uri=constraint_ann_uri,
+                format="json",
+                schema="residue",
+                field_name="color",
+            )
 
         # Non-polymer (ligands, MG) → ball-and-stick with atom-level coloring
         lig = ms.component(selector="ligand")
@@ -657,7 +814,229 @@ def generate_minimized_viewer(project, experiment, job, verbose=True):
         label = experiment
     mvs_title = f"{experiment.split('_')[0]} \u00B7 {label}"
 
-    _write_minimized_mvsj(pdb_paths, output_path, verbose, title=mvs_title)
+    # Colour the DNA cartoon by constraint component (like the Boltz-2
+    # section) so which constraints were applied / survived is visible.
+    constraint_ann_uri = None
+    if "_constrained" in experiment:
+        constraints = load_constraints(project, experiment, verbose=verbose)
+        if constraints:
+            annotation = constraint_residue_annotation(constraints)
+            if annotation:
+                ann_bytes = json.dumps(annotation).encode()
+                ann_b64 = base64.b64encode(ann_bytes).decode()
+                constraint_ann_uri = f"data:application/json;base64,{ann_b64}"
+
+    _write_minimized_mvsj(
+        pdb_paths, output_path, verbose, title=mvs_title,
+        constraint_ann_uri=constraint_ann_uri,
+        constrained_base_white=constraint_ann_uri is not None,
+    )
+
+
+# =====================================================================
+#  Constraint verification for minimised structures
+# =====================================================================
+
+def _parse_constraint_pairs(yaml_path):
+    """
+    Parse unique contact constraints from a Boltz-2 YAML file.
+
+    Returns
+    -------
+    dict
+        Mapping from canonical ``((chain_i, res_i), (chain_j, res_j))``
+        tuples (order-insensitive, deduplicated) to the restraint's
+        ``max_distance``.
+    """
+    with open(yaml_path) as fh:
+        data = yaml.safe_load(fh)
+
+    unique_pairs = {}
+    for entry in data.get("constraints", []):
+        contact = entry.get("contact", {})
+        token1 = contact.get("token1")
+        token2 = contact.get("token2")
+        if token1 is None or token2 is None:
+            continue
+        if len(token1) != 2 or len(token2) != 2:
+            continue
+        pair = tuple(sorted({(token1[0], token1[1]), (token2[0], token2[1])}))
+        unique_pairs[pair] = float(contact.get("max_distance", 4.0))
+
+    return unique_pairs
+
+
+def _pair_label(pair):
+    """Compact human-readable label for a constraint pair, e.g. ``A14-A24``."""
+    (chain_i, res_i), (chain_j, res_j) = pair
+    return f"{chain_i}{res_i}-{chain_j}{res_j}"
+
+
+def _structure_heavy_atoms(structure):
+    """
+    Extract per-residue heavy-atom coordinates from a gemmi structure.
+
+    Chain ids that are blank in the PDB are forced to ``"A"`` so they match
+    the YAML constraint tokens.  Returns a mapping ``(chain, res_seq) ->
+    (n, 3) float array`` of heavy-atom coordinates.
+    """
+    for model in structure:
+        for chain in model:
+            if not chain.name.strip():
+                chain.name = "A"
+
+    atoms = {}
+    for model in structure:
+        for chain in model:
+            chain_id = chain.name.strip()
+            for residue in chain:
+                coords = []
+                for atom in residue:
+                    if atom.element.name in ("H", "D"):
+                        continue
+                    coords.append((atom.pos.x, atom.pos.y, atom.pos.z))
+                if coords:
+                    key = (chain_id, residue.seqid.num)
+                    atoms[key] = np.asarray(coords, dtype=np.float64)
+    return atoms
+
+
+def _min_heavy_atom_distance(atom_arrays, pair):
+    """Minimum Euclidean distance (Å) between two residues' heavy atoms."""
+    (chain_i, res_i), (chain_j, res_j) = pair
+    a_i = atom_arrays.get((chain_i, res_i))
+    a_j = atom_arrays.get((chain_j, res_j))
+    if a_i is None or a_j is None or len(a_i) == 0 or len(a_j) == 0:
+        return float("inf")
+    diff = a_i[:, None, :] - a_j[None, :, :]
+    return float(np.linalg.norm(diff, axis=-1).min())
+
+
+def process_minimized_constraint_verification(project, experiment, job,
+                                              verbose=True):
+    """
+    Compute per-task satisfaction of contact restraints for one MD job.
+
+    Mirrors :func:`boltz2_utils.process_constraint_verification` but for the
+    Amber minimised structures: for every ``task_*/final_min/pdb/*_stripped.pdb``
+    under ``{project}/MD/pmemd/out/{experiment}/{job}``, the minimum heavy-atom
+    distance between each constrained residue pair is compared against the
+    restraint's ``max_distance``.
+
+    Verification is ambiguity-aware (exactly as in Boltz-2): a residue that
+    takes part in at least one satisfied restraint is "covered", and a model
+    is fully verified when every constrained residue is covered.  Restraints
+    that are unsatisfied while an endpoint is uncovered are reported as
+    failures.
+
+    Results are written to
+    ``{project}/MD/pmemd/out/{experiment}/{job}/{experiment}_{job}_minimized_constraints.csv``
+    with one row per task (model index matches the MVSJ snapshot numbering):
+
+    - model: 0-based task index (``task_N``)
+    - n_constraints / n_satisfied: unique restraint counts
+    - all_verified: 1 if every constrained residue is covered, else 0
+    - failed_constraints: semicolon-separated labels of failing restraints
+      ("—" when there are none)
+    - worst_min_distance: largest min-distance observed across restraints
+
+    Parameters
+    ----------
+    project : str
+    experiment : str
+    job : str
+    verbose : bool
+        Print progress messages to stdout (default True).
+
+    Returns
+    -------
+    str | None
+        Path of the written CSV, or ``None`` if nothing was processed.
+    """
+    yaml_path = _yaml_path(project, experiment)
+    if yaml_path is None:
+        if verbose:
+            print(f"  YAML file not found for {project}/{experiment} — "
+                  "skipping minimised constraint verification.")
+        return None
+    constraints = _parse_constraint_pairs(yaml_path)
+    if not constraints:
+        if verbose:
+            print(f"  No contact constraints found in {yaml_path}.")
+        return None
+
+    job_dir = os.path.join(project, "MD", "pmemd", "out", experiment, job)
+    pdb_paths = find_minimized_pdbs(job_dir)
+    if not pdb_paths:
+        if verbose:
+            print(f"  No stripped PDBs found in {job_dir}")
+        return None
+
+    residue_constraints = {}
+    for pair in constraints:
+        residue_constraints.setdefault(pair[0], []).append(pair)
+        residue_constraints.setdefault(pair[1], []).append(pair)
+
+    rows = []
+    for pdb_path in pdb_paths:
+        structure = gemmi.read_structure(str(pdb_path))
+        atom_arrays = _structure_heavy_atoms(structure)
+
+        satisfied = set()
+        distances = {}
+        for pair, max_distance in constraints.items():
+            dist = _min_heavy_atom_distance(atom_arrays, pair)
+            distances[pair] = dist
+            if dist <= max_distance:
+                satisfied.add(pair)
+
+        covered = {
+            res
+            for res, pairs in residue_constraints.items()
+            if any(p in satisfied for p in pairs)
+        }
+        all_verified = len(covered) == len(residue_constraints)
+
+        failed = [
+            pair
+            for pair in constraints
+            if pair not in satisfied
+            and (pair[0] not in covered or pair[1] not in covered)
+        ]
+        failed.sort(key=_pair_label)
+
+        task_dir = os.path.basename(
+            os.path.dirname(os.path.dirname(os.path.dirname(pdb_path)))
+        )
+        model_idx = int(task_dir.split("_")[-1])
+
+        rows.append(
+            {
+                "model": model_idx,
+                "n_constraints": len(constraints),
+                "n_satisfied": len(satisfied),
+                "all_verified": int(all_verified),
+                "failed_constraints": "; ".join(_pair_label(p) for p in failed)
+                if failed
+                else "—",
+                "worst_min_distance": round(max(distances.values()), 3),
+            }
+        )
+
+    result_df = pd.DataFrame(rows).sort_values("model")
+    out_path = os.path.join(
+        job_dir, f"{experiment}_{job}_minimized_constraints.csv"
+    )
+    result_df.to_csv(out_path, index=False)
+
+    if verbose:
+        n_ok = int(result_df["all_verified"].sum())
+        print(
+            f"  Minimised constraint verification {experiment}/{job}: "
+            f"{n_ok}/{len(result_df)} tasks fully verified. "
+            f"Saved: {out_path}"
+        )
+    return out_path
 
 
 # =====================================================================
