@@ -381,7 +381,7 @@ table_constraints <- function(constraint_dt, seq,
   if (nrow(dt) == 0) {
     return(NULL)
   }
-  dt[, intersect(c("sequence", "model_name", "experiment"), names(dt)) := NULL]
+  dt[, intersect(c("sequence", "model_name", "experiment", "job"), names(dt)) := NULL]
   dt[, verified := fifelse(all_verified == 1, "\u2713", "\u2717")]
   setcolorder(
     dt,
