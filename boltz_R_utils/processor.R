@@ -106,10 +106,13 @@ process_confidence <- function(project, keep = NULL) {
     confidence_dt[, id := .I]
   }
 
-  # 5. Reorder columns so base identifiers come first,
+  # 5. Derive the sequence label (e.g. "CSS1" from "CSS1_free_constrained")
+  confidence_dt[, sequence := sub("_.*$", "", sub("_constrained$", "", model))]
+
+  # 6. Reorder columns so base identifiers come first,
   #    then metric columns, then chain-specific expansions
   all_cols <- names(confidence_dt)
-  base_cols <- c("model", "experiment", "id", "confidence_score", "ptm")
+  base_cols <- c("model", "experiment", "id", "sequence", "confidence_score", "ptm")
   base_cols <- intersect(base_cols, all_cols)
 
   chain_cols <- grep("_chain", all_cols, value = TRUE)
@@ -119,6 +122,7 @@ process_confidence <- function(project, keep = NULL) {
       "model",
       "experiment",
       "id",
+      "sequence",
       "ptm",
       grep("_chain", all_cols, value = TRUE)
     )
@@ -141,7 +145,8 @@ process_confidence <- function(project, keep = NULL) {
 # =====================================================================
 
 table_confidence <- function(confidence_dt, project = get("project", parent.frame()),
-                             page_length = NULL, element_id = "confidence_table") {
+                             page_length = NULL, element_id = "confidence_table",
+                             outfile = NULL) {
   # Build an interactive DT::datatable with colour-bar styling, wrap it in
   # a Bootstrap 5 theme (bslib), and save the result as an HTML file in the
   # project directory.
@@ -150,6 +155,10 @@ table_confidence <- function(confidence_dt, project = get("project", parent.fram
   # variable `project` from the calling environment (backward-compatible).
   # *element_id* is passed to DT::datatable() so the htmlwidget gets a
   # stable, unique DOM id (avoids collisions with auto-generated ids).
+  # *outfile*: NULL (default) saves the standalone themed page to
+  # ``{project}/confidence_table.html``; NA skips the standalone page
+  # (used when the widget is embedded directly in the report); any other
+  # path overrides the default location.
   #
   # Styling rules:
   #   - `Smaller is better` metrics (PAE, PDE, IPDE) get a horizontal bar
@@ -228,7 +237,7 @@ table_confidence <- function(confidence_dt, project = get("project", parent.fram
     rownames = FALSE
   ) |>
     # Round all metric columns to 3 significant digits
-    formatRound(columns = 4:ncol(confidence_dt), digits = 3) |>
+    formatRound(columns = which(vapply(confidence_dt, is.numeric, logical(1))), digits = 3) |>
     # Apply colour-bar background to each metric column
     (\(x) {
       Reduce(
@@ -254,13 +263,18 @@ table_confidence <- function(confidence_dt, project = get("project", parent.fram
       )
     })()
 
-  # 5. Wrap in themed page and save as HTML
-  themed_page <- bslib::page_fluid(
-    title = "Confidence Scores",
-    theme = bs_theme,
-    display_table
-  )
-  htmltools::save_html(themed_page, file = paste0(project, "/confidence_table.html"))
+  # 5. Wrap in themed page and save as HTML (outfile = NA skips this)
+  if (!identical(outfile, NA)) {
+    if (is.null(outfile)) {
+      outfile <- paste0(project, "/confidence_table.html")
+    }
+    themed_page <- bslib::page_fluid(
+      title = "Confidence Scores",
+      theme = bs_theme,
+      display_table
+    )
+    htmltools::save_html(themed_page, file = outfile)
+  }
 
   display_table
 }
