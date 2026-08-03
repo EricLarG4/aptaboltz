@@ -35,12 +35,12 @@ boltz2_utils/               Python package (imported by all projects)
     process_output.py           boltz-process-output command
   generate_boltz2_yaml.py     YAML input builder
   generate_boltz2_slurm.py    SLURM script generator
-  process_boltz_results.py    Output processing (PyMOL + RDKit)
+  process_boltz_results.py    Output processing (PyMOL + RDKit) + per-model constraint verification
   base.py                     PyMOL base styling
-  generate_web_viewer.py      Mol* web viewer (MVSJ) generation
+  generate_web_viewer.py      Mol* web viewer (MVSJ) generation (pLDDT, constraints, essential bases)
 
 boltz_R_utils/              R scripts (sourced by all projects)
-  processor.R                 Confidence, PAE, PDE, pLDDT reading + plotting
+  processor.R                 Confidence, PAE, PDE, pLDDT reading + plotting; constraint verification tables
   install_packages.R          One-time R + conda environment setup
 
 templates/                  Project-specific files with PLACEHOLDER_ values
@@ -65,7 +65,7 @@ templates/                  Project-specific files with PLACEHOLDER_ values
       generate_pmemd_inputs.py    Amber pmemd input file generator (§9.5)
       fix_pdb_elements.py         Add PDB element columns to Amber AC files (§8.6)
       model_prep.py               Boltz-2 → MD PDB preparation (§8.7)
-      pymol_utils.py              PyMOL visualisation utilities (§9.11)
+      pymol_utils.py              PyMOL visualisation utilities; minimized Mol* viewers + constraint verification (§9.11)
       traj_utils.py               Mol* trajectory viewer (.mvsj) generation (§9.12)
     R/
       ions.R                      Ion concentration calculator (§8.9)
@@ -653,11 +653,24 @@ For each (model × ligand × suffix × job-directory) combination:
    - **pLDDT viewer** — one snapshot per model with per-atom pLDDT
      colouring; switch between models in the viewer's state gallery.
    - **Constraint viewer** — (constrained experiments only) pastel-coloured
-     connected components with one snapshot per model.
+     connected components with one snapshot per model.  An optional
+     `stem_length` excludes constraints within the stem region (structural
+     base pairs that are not informative contacts).
 
    The MVSJ generation is implemented in
    `boltz2_utils/generate_web_viewer.py`, which is called inline from
-   `process_boltz_results.py` (step 7 of `process_experiment()`).
+   `process_boltz_results.py` (step 7 of `process_experiment()`).  The same
+   module also provides `generate_essential_viewer()`, which colours a
+   curated set of essential DNA bases by identity (A→lightblue, C→plum,
+   G→tan, T→lightgreen, matching the PyMOL scheme); the Quarto report uses
+   it to highlight the bases that drive binding for bound variants.
+
+   Per-model **contact-restraint verification** is provided by
+   `process_constraint_verification(project, model, experiment)` (same
+   module): it compares the minimum heavy-atom distance of each restrained
+   residue pair against the restraint's `max_distance`, and writes one row
+   per model to `{experiment}_{job}_constraints.csv`.  It is invoked from
+   the report's Python chunk or standalone.
 
 ### 5.5 Generated Files
 
@@ -675,6 +688,7 @@ For each (model × ligand × suffix × job-directory) combination:
 | `{experiment}_{job}_plddt.csv` | pLDDT per residue |
 | `{experiment}_{job}_plddt.mvsj` | Multi-snapshot Mol* viewer (pLDDT-coloured) |
 | `{experiment}_{job}_constraints.mvsj` | Multi-snapshot Mol* viewer (constraint-coloured, constrained experiments only) |
+| `{experiment}_{job}_constraints.csv` | Per-model contact-restraint verification (one row per model: restraint counts, satisfied, all-verified, failing restraints, worst min. distance) |
 
 ### 5.6 Controlling Which Job Directories Are Processed
 
@@ -743,7 +757,9 @@ aptamer → `ligand_number = 47`.
 | Function | Input | Output |
 |----------|-------|--------|
 | `process_confidence(project, keep = NULL)` | All `*_confidence.csv` files | `data.table`, one row per model; `keep` filters to specific `model/experiment` pairs |
-| `table_confidence(confidence_dt, project)` | The returned `data.table` | HTML file `confidence_table.html` |
+| `table_confidence(confidence_dt, project, outfile = NULL)` | The returned `data.table` | Interactive DT table; HTML file `confidence_table.html` (override the output path via `outfile`) |
+| `process_constraints(project, keep = NULL)` | All `*_constraints.csv` files (excluding `*_minimized_constraints.csv`) | `data.table`, one row per model; derives `sequence` and `condition` (Free/HCY/PQ) labels from the model names |
+| `table_constraints(constraint_dt, seq, project, page_length, element_id, outfile)` | A `data.table` from `process_constraints()` or `read_minimized_constraints()` | Interactive DT table of constraint verification for one sequence (Condition, Model, Restraints, Satisfied, Verified, Non-verified restraints, Worst min. distance); `element_id`/`outfile` allow embedding in a report |
 | `process_pxe(type=...)` | All `*_pae.csv` or `*_pde.csv` files | Named list of `data.table`s (one per experiment) |
 | `plot_pxe(pxe, type, ..., width, height, dpi, show_title, show_subtitle)` | One element from `process_pxe()` | Faceted PNG per region (DNA / Ligand); optional size, DPI, and title control |
 | `plot_plddt(project, ..., width, height, dpi, show_title, show_subtitle)` | All `*_plddt.csv` files in project | Faceted line-plot PNG per experiment; optional size, DPI, and title control |
@@ -1619,22 +1635,31 @@ by project-specific entry-point scripts (e.g. `final_min_pymol.py`).
 | Function | Description |
 |----------|-------------|
 | `process_final_min(project, experiment, job)` | Load stripped PDB files from the final-minimisation stage, align all models, apply base/element colouring, and save a `.pse` session.  Then reset nucleic acids to white and overlay constraint-coloured residues for a second `.pse` session. |
-| `load_constraints(project, experiment)` | Parse contact constraints from the experiment's YAML file.  Returns deduplicated residue-pair tuples or `None` if the experiment is not constrained. |
+| `load_constraints(project, experiment, verbose = TRUE, stem_length = 0)` | Parse contact constraints from the experiment's YAML file.  Returns deduplicated residue-pair tuples or `None` if the experiment is not constrained.  `stem_length` drops any constraint with a residue number `<= stem_length` (structural stem base pairs are not informative contacts). |
+| `constraint_residue_annotation(constraints)` | Build a Mol* residue-colour annotation from constraint components — each connected component of constrained residues gets the next colour from the `CONSTRAINT_COLORS` palette. |
 | `color_constrained_residues(constraints)` | Build a graph from constraint pairs, find connected components via BFS, and assign each component a unique colour from the `CONSTRAINT_COLORS` palette.  Automatically falls back to residue-number-only selection when chain IDs are absent in the PDB. |
-| `generate_minimized_viewer(project, experiment, job)` | Generate a multi-snapshot Mol* web viewer file (.mvsj) for the minimised structures, with DNA bases coloured by type (A→lightblue, C→plum, G→tan, T→lightgreen).  Produces one snapshot per task replicate with illustrative-style cartoon rendering + outline. |
+| `generate_minimized_viewer(project, experiment, job, verbose = TRUE, stem_length = 0)` | Generate a multi-snapshot Mol* web viewer file (.mvsj) for the minimised structures, with DNA bases coloured by type (A→lightblue, C→plum, G→tan, T→lightgreen).  Produces one snapshot per task replicate with illustrative-style cartoon rendering + outline.  `stem_length` excludes stem-region constraints from the colouring. |
+| `generate_minimized_essential_viewer(project, experiment, job, seq, stem_length, bases, verbose = TRUE)` | Generate a multi-snapshot .mvsj colouring a curated set of essential DNA bases by identity (A/C/G/T, matching the PyMOL scheme), with the cartoon drawn white and only the annotated residues coloured. |
+| `process_minimized_constraint_verification(project, experiment, job, verbose = TRUE, stem_length = 0)` | Compute per-task satisfaction of each contact restraint against the minimised structures' minimum heavy-atom distances (ambiguity-aware, as in Boltz-2), and write one row per task replicate to `{experiment}_{job}_minimized_constraints.csv`. |
 
 #### Usage Examples
 
 ```python
-# Import all three functions
+# Import the reusable functions
 from pymol_utils import (
     process_final_min,
     load_constraints,
     color_constrained_residues,
+    generate_minimized_viewer,
+    generate_minimized_essential_viewer,
+    process_minimized_constraint_verification,
 )
 
 # Process a single experiment/job pair
 process_final_min("my_project", "Seq1_L01_constrained", "J1234567")
+
+# Minimised-structure constraint verification (writes the *_minimized_constraints.csv)
+process_minimized_constraint_verification("my_project", "Seq1_L01_constrained", "J1234567")
 ```
 
 Or as a standalone script (see `CSS/MD/python/final_min_pymol.py` for a
@@ -1685,6 +1710,14 @@ The output is a single `.mvsj` file per job at:
 Each snapshot corresponds to one task (replicate), with base-coloured
 nucleic acids, light-grey ions, cartoon rendering, and the same
 illustrative-style outline as the Boltz-2 Mol* viewers (§5.4 step 7).
+
+For bound variants with an annotated set of essential bases,
+`generate_minimized_essential_viewer(...)` writes a matching
+`{experiment}_{job}_final_min_essential.mvsj` that colours only those
+bases.  `process_minimized_constraint_verification(...)` writes
+`{experiment}_{job}_minimized_constraints.csv` (one row per task
+replicate), which the report aggregates in R via
+`read_minimized_constraints()`.
 
 #### Chain-ID Fallback
 
@@ -1752,13 +1785,13 @@ The output is one `.mvsj` file per job at:
 | `boltz2_utils/cli/generate_input.py` | CLI entry point: `boltz-generate-input` console script (see §3) |
 | `boltz2_utils/cli/process_output.py` | CLI entry point: `boltz-process-output` console script (see §5) |
 | `boltz2_utils/base.py` | PyMOL styling script (nucleic-acid base colours, protein detection, solvent/ion hiding) |
-| `boltz2_utils/process_boltz_results.py` | PyMOL alignment + colouring, ligand extraction, chirality grid, CSV aggregation (confidence, PAE, PDE, pLDDT) |
+| `boltz2_utils/process_boltz_results.py` | PyMOL alignment + colouring, ligand extraction, chirality grid, CSV aggregation (confidence, PAE, PDE, pLDDT), per-model constraint verification |
 | `boltz2_utils/process_boltz_results_nolgd.py` | Simplified version without ligand processing (legacy) |
 | `boltz2_utils/generate_boltz2_yaml.py` | YAML input builder: stem contacts, additional constraints, MSA integration, molecule-type support |
 | `boltz2_utils/generate_boltz2_slurm.py` | SLURM script generator (one per YAML file) |
-| `boltz2_utils/generate_web_viewer.py` | MolViewSpec JSON (.mvsj) generator for interactive 3D visualisation in the Mol* web viewer (alternative to PyMOL sessions) |
+| `boltz2_utils/generate_web_viewer.py` | MolViewSpec JSON (.mvsj) generator for interactive 3D visualisation in the Mol* web viewer (alternative to PyMOL sessions): pLDDT, constraint, and essential-base viewers |
 | `boltz_R_utils/install_packages.R` | One-time R + conda setup |
-| `boltz_R_utils/processor.R` | Confidence/PAE/PDE/pLDDT reading, melting, plotting |
+| `boltz_R_utils/processor.R` | Confidence/PAE/PDE/pLDDT reading, melting, plotting; constraint-verification DT tables |
 
 ### Project-specific templates (copy and edit per project)
 
@@ -1784,7 +1817,7 @@ The output is one `.mvsj` file per job at:
 | `templates/MD/pmemd/in/step1.in` … `step10.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5); no manual editing needed. The `archive/` directory holds previous versions |
 | `templates/MD/pmemd/in/final_min.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5) |
 | `templates/MD/python/generate_md_slurm.py` | `experiment`, `array`, `scratchdir`, `gpu`, `residues`, `solvent` — generates a configured `.slurm` from `PrepAndMin.slurm` (§9.2) |
-| `templates/MD/python/pymol_utils.py` | No edits required — reusable functions imported by project scripts; also generates Mol* viewer (.mvsj) files as an interactive alternative to PyMOL sessions (§9.11) |
+| `templates/MD/python/pymol_utils.py` | No edits required — reusable functions imported by project scripts; PyMOL sessions, Mol* minimized/essential viewers (.mvsj), and per-task constraint verification (§9.11) |
 | `templates/MD/python/traj_utils.py` | No edits required — reusable functions imported by project scripts; generates Mol* trajectory viewer (.mvsj) files from Amber MD trajectories (§9.12) |
 | `templates/MD/slurm/PrepAndMin.slurm` | Template with `__PLACEHOLDER__` markers; used by `generate_md_slurm.py` (§9.1) |
 
