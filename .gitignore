@@ -61,3 +61,7 @@ boltz.qmd
 CSS_PQ4_draft*/
 CSS_PQ4_draft.qmd
 .opencode/plans/contacts-analysis.md
+_aptaboltz_site
+
+/.quarto/
+**/*.quarto_ipynb
