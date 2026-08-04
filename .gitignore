@@ -65,3 +65,6 @@ _aptaboltz_site
 
 /.quarto/
 **/*.quarto_ipynb
+
+/.luarc.json
+deployment_readme.md
