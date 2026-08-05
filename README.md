@@ -1592,7 +1592,7 @@ used by `pdb_pi_stacking()`).
 | `plot_atomfluct(atomfluct, res_cutoff, label_cutoff, scale)` | Plots per-residue atomic fluctuation as a line/point chart with automatic labelling of high-fluctuation regions via `ggrepel`. |
 | `clean_dna_residue(res)` | Strips the one-letter DNA prefix and underscores from cpptraj-style residue labels (`DG_21` → `G21`). |
 | `element_span(atom)` | Wraps an atom label in a CPK-coloured HTML span for DT tables and ggtext axis labels. |
-| `ring_label(ring)` | Maps ligand ring indices to descriptive names (`ring_labels`; per-ligand example, see §9.10). |
+| `ring_label(ring)` | Maps ligand ring/unit names to descriptive labels (`ring_labels`; per-ligand example covering both `Q0/Q1` fused-unit and `R0-R3` per-ring names, see §9.10). |
 | `read_contacts_avg(file, ligand_residue)` | Reads cpptraj H-bond average output (`hbond avgout`), keeping only intermolecular ligand-DNA contacts. `ligand_residue` is inferred when omitted. |
 | `read_contacts_matrix(file, ligand_residue, simulation_time, extract_frequency)` | Reads a per-frame ligand-DNA contact count matrix into a long-format `data.table` with time coordinates. `ligand_residue` is inferred when omitted. |
 | `plot_contacts(dt_avg, dt_ts, max_t, scale, min_frac)` | Two-panel occupancy + contact-count time-series plot. |
@@ -1675,6 +1675,14 @@ This writes one CSV per model
 `ring_defs.json`.  Feed the CSVs to `read_pi_stacking()` /
 `pdb_pi_stacking()` / `plot_pi_stacking_tracked()` /
 `pi_stacking_summary()`.  Requires `MDAnalysis` and `RDKit`.
+
+By default (`--simplify`) fused aromatic rings are merged into single units
+(`Q0`, `Q1`, ...): the two rings of each quinoline are treated as one planar
+system, so stacks occurring through either the pyridine or the benzene ring
+are counted together.  Pass `--no-simplify` for per-ring (`R0`, `R1`, ...)
+resolution.  The ligand unit/ring names flow into `ring_defs.json`, so the
+in-situ `pdb_pi_stacking()` evaluation uses the same resolution, and
+`ring_label()` in `md_utils.R` maps them to descriptive labels.
 
 #### Minimised-Structure Constraint Verification
 
