@@ -326,11 +326,16 @@ return {
 
     local url = pandoc.utils.stringify(args[1])
     local appId = 'app-' .. url
+    local urlExtension = fileExt(url)
+
+    if urlExtension == 'mvsj' then
+      quarto.doc.add_resource('../../../' .. url)
+    end
 
     return pandoc.RawBlock('html', createViewer {
       appId = appId,
       url = url,
-      urlExtension = fileExt(url),
+      urlExtension = urlExtension,
       userOptions = kwargs
     }
     )
