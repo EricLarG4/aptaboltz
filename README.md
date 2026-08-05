@@ -1602,7 +1602,7 @@ used by `pdb_pi_stacking()`).
 | `contacts_summary(ref, avg)` | Summary table of reference contacts with set membership, occupancy and mean geometry. |
 | `read_pi_stacking(file, stride, simulation_time)` | Reads a per-pair pi-stacking CSV (from `pi_stacking.py`) into long format with absent frames zero-padded. |
 | `pdb_pi_stacking(pdb, ring_defs_file, ligand_resname, ...)` | Evaluates the pi-stacking set of a single structure in situ from a PDB and `ring_defs.json`. |
-| `plot_pi_stacking_tracked(dt_long, ref, max_t, scale, heat_bin_ns)` | Presence heatmap for the reference pi-stacking sets, one panel per model. |
+| `plot_pi_stacking_tracked(dt_long, ref, max_t, scale, heat_bin_ns)` | Presence heatmap for the reference pi-stacking sets, one panel per model. Row labels are `<ring>∥<DNA base>` (e.g. `Q1∥A10`), ordered by ring so each ring's rows group together. |
 | `pi_stacking_summary(ref, dt_long)` | Summary table of reference pi-stacking pairs with occupancy, mean geometry and dominant mode. |
 | `read_minimized_constraints(project)` | Reads all `*_minimized_constraints.csv` files under `{project}/MD/pmemd/out/` into one `data.table` (columns `sequence`, `condition`, `experiment`, `job`, `model`, `n_constraints`, `n_satisfied`, `all_verified`, `failed_constraints`, `worst_min_distance`). |
 | `theme_custom(scaling)` | Returns a publication-quality `ggplot2` theme with configurable font sizes. |
@@ -1658,6 +1658,14 @@ H-bond contacts:
    the start of the production run) and "final" contacts (present in the
    final minimised structure).  `plot_contacts_tracked()` renders the
    presence heatmap and `contacts_summary()` the occupancy/geometry table.
+
+The `hbond`/`contactseries` files are **not** produced by the SLURM
+pipeline: they come from a per-project, manually maintained cpptraj script
+(`{project}/MD/hbond_analysis.cpptraj`) that hard-codes the job directory
+and task IDs.  After starting a new MD job you must update that script to
+point at the new job's task dirs (and re-run it with cpptraj) before the
+tracking functions can see the new run — unlike `pi_stacking.py`, which
+scans `pmemd/out/` and uses the newest job automatically.
 
 Pi-stacking interactions (per-ligand — the ligand must have aromatic rings)
 use the same workflow, but the trajectory data are precomputed externally:
