@@ -168,6 +168,14 @@ clean_dna_residue <- function(res) {
   gsub("_", "", sub("^D", "", res))
 }
 
+# pad_dna_residue() appends a non-breaking space (U+00A0) to single-digit
+# residue numbers so that stacked "Q1\u2225C9" labels align vertically with
+# multi-digit ones ("Q1\u2225G21"). A regular space would be stripped by the
+# ggtext markdown parser; NBSP renders identically and survives.
+pad_dna_residue <- function(res) {
+  ifelse(grepl("^[A-Z][0-9]$", res), paste0(res, "\u00A0"), res)
+}
+
 # CPK-like element colours for colouring ligand atoms by element (N blue,
 # O red, ...). Used for HTML spans in DT tables and ggtext axis labels.
 element_colour <- c(H = "#FFFFFF", C = "#909090", N = "#3050F8",
@@ -947,7 +955,7 @@ pdb_hbond_contacts <- function(pdb, dist_cut = 3.2, angle_cut = 135,
 # Returns:
 #   A ggplot object.
 plot_contacts_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
-                                  heat_bin_ns = 1) {
+                                  heat_bin_ns = 0.1) {
   ref_sub <- ref[, .(contact, model, seq, experiment, in_initial, in_final,
                      dna_residue, dna_atom, ligand_atom)]
   # drop dna_residue/dna_atom/ligand_atom from the long data to avoid merge
@@ -1023,14 +1031,32 @@ plot_contacts_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
     row_lab <- c(row_lab, setNames(rep("", length(dummy_keys)), dummy_keys))
   }
 
+  # ---- Minimised-structure membership column ----
+  # One tile per row to the right of the trajectory showing whether the
+  # contact is present in the final minimised structure (step-11 PDB),
+  # independent of the trajectory occupancy used for the time bins.
+  marker_x <- max_t + 1.5
+  marker_w <- 0.8
+  marker_dt <- order_dt[, .(model, seq, row_key, in_initial, in_final)]
+  marker_dt[, `:=`(
+    bin = marker_x,
+    present_frac = NA_real_,
+    fill_key = fifelse(in_final == 1, "min_yes", "min_no")
+  )]
+  heat_agg <- rbind(heat_agg, marker_dt, fill = TRUE)
+
   heat_agg[, row_key := factor(row_key,
                                levels = c(order_dt$row_key[order(order_dt$row_level)],
                                           dummy_keys))]
   heat_agg[, model := factor(model, levels = model_levels, labels = model_labels)]
 
+  time_agg <- heat_agg[fill_key %in% c("min_yes", "min_no") == FALSE]
+  marker_agg <- heat_agg[fill_key %in% c("min_yes", "min_no")]
+
   heat_p <- ggplot(heat_agg, aes(bin, row_key, fill = fill_key,
                                  pattern = fill_key)) +
     geom_tile_pattern(
+      data = time_agg,
       width = heat_bin_ns * 1.02, height = 0.9, na.rm = TRUE,
       pattern_type = "stripe",
       pattern_colour = NA,
@@ -1039,27 +1065,38 @@ plot_contacts_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
       pattern_density = 0.5,
       pattern_angle = 45
     ) +
+    geom_tile_pattern(
+      data = marker_agg,
+      width = marker_w, height = 0.9, na.rm = TRUE,
+      pattern_type = "none",
+      pattern_colour = NA
+    ) +
+    geom_vline(xintercept = max_t, colour = "grey60",
+               linewidth = 0.4, na.rm = TRUE) +
     facet_grid(model ~ ., scales = "free_y", space = "free_y", drop = FALSE) +
     theme_custom(scale) +
     scale_fill_manual(
       values = c(absent = "#F2F2F2", initial = "#FFA6D9",
-                 final = "#C9303E", both = "#C9303E"),
-      breaks = c("absent", "initial", "final", "both"),
-      labels = c("absent", "present, initial set", "present, final set",
-                 "present, both sets"),
+                 final = "#C9303E", both = "#C9303E",
+                 min_yes = "#C9303E", min_no = "#FFFFFF"),
+      breaks = c("absent", "initial", "final", "both", "min_yes"),
+      labels = c("absent", "present, initial", "present, minimized",
+                 "present, initial & minimized",
+                 "in final minimised structure"),
       name = NULL
     ) +
     scale_pattern_manual(
       values = c(absent = "none", initial = "none", final = "none",
-                 both = "stripe"),
-      breaks = c("absent", "initial", "final", "both"),
-      labels = c("absent", "present, initial set", "present, final set",
-                 "present, both sets"),
+                 both = "stripe", min_yes = "none", min_no = "none"),
+      breaks = c("absent", "initial", "final", "both", "min_yes"),
+      labels = c("absent", "present, initial", "present, minimized",
+                 "present, initial & minimized",
+                 "in final minimised structure"),
       name = NULL
     ) +
     scale_x_continuous("Time (ns)", breaks = seq(0, max_t, by = 25),
                        expand = c(0, 0)) +
-    coord_cartesian(xlim = c(0, max_t)) +
+    coord_cartesian(xlim = c(0, max_t + 3.2)) +
     scale_y_discrete(labels = function(x) row_lab[x], name = NULL) +
     guides(fill = guide_legend(nrow = 2)) +
     theme(legend.position = "top",
@@ -1092,7 +1129,7 @@ contacts_summary <- function(ref, avg = NULL) {
   summ <- copy(ref)
   summ <- summ[in_initial == 1 | in_final == 1]
   summ[, set := fifelse(in_initial == 1 & in_final == 1, "both",
-                        fifelse(in_initial == 1, "initial", "final"))]
+                        fifelse(in_initial == 1, "initial", "minimized"))]
 
   if (!is.null(avg) && nrow(avg) > 0) {
     avg_sub <- avg[, .(contact, model,
@@ -1359,7 +1396,7 @@ pdb_pi_stacking <- function(pdb, ring_defs_file, ligand_resname = "PQ",
 # Returns:
 #   A ggplot object.
 plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
-                                     heat_bin_ns = 1) {
+                                     heat_bin_ns = 0.1) {
   ref_sub <- ref[, .(pair, model, seq, experiment, in_initial, in_final,
                      base_residue, lig_ring)]
   dt <- copy(dt_long)[, c("base_residue", "lig_ring") := NULL]
@@ -1395,9 +1432,10 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
 
   order_dt <- unique(dt[, .(pair, model, seq, in_initial, in_final,
                             base_residue, lig_ring)])
+  order_dt[, base_num := as.integer(gsub("[^0-9]", "", base_residue))]
   order_dt[,
     row_key := paste0(model, " | ", pair)
-  ][order(model, seq, -in_final, -in_initial, lig_ring, base_residue),
+  ][order(model, seq, lig_ring, base_num, base_residue),
     row_level := seq_len(.N)
   ]
 
@@ -1408,7 +1446,7 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
   # Row labels: "<descriptive ligand ring>\u2225<cleaned DNA base>"
   row_lab <- setNames(
     paste0(ring_label(order_dt$lig_ring), stack_sep,
-           clean_dna_residue(order_dt$base_residue)),
+           pad_dna_residue(clean_dna_residue(order_dt$base_residue))),
     order_dt$row_key)
 
   missing_models <- setdiff(model_levels, unique(as.character(heat_agg$model)))
@@ -1428,14 +1466,44 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
     row_lab <- c(row_lab, setNames(rep("", length(dummy_keys)), dummy_keys))
   }
 
+  # ---- Minimised-structure membership column ----
+  # One tile per row to the right of the trajectory showing whether the
+  # pair is present in the final minimised structure (step-11 PDB),
+  # independent of the trajectory occupancy used for the time bins.
+  marker_x <- max_t + 1.5
+  marker_w <- 0.8
+  marker_dt <- order_dt[, .(model, seq, row_key, in_initial, in_final)]
+  marker_dt[, `:=`(
+    bin = marker_x,
+    present_frac = NA_real_,
+    fill_key = fifelse(in_final == 1, "min_yes", "min_no")
+  )]
+  heat_agg <- rbind(heat_agg, marker_dt, fill = TRUE)
+
+  # Q1 series on top, Q2 below (row order is inverted relative to the sort)
   heat_agg[, row_key := factor(row_key,
-                               levels = c(order_dt$row_key[order(order_dt$row_level)],
+                               levels = c(rev(order_dt$row_key[order(order_dt$row_level)]),
                                           dummy_keys))]
   heat_agg[, model := factor(model, levels = model_levels, labels = model_labels)]
+
+  # ---- Q1/Q2 series separator ----
+  # Horizontal line between the Q1 (pyr/benz) and Q2 blocks of each model,
+  # placed right above the last Q2 row (Q2 sits at the bottom).
+  boundary_dt <- order_dt[, .(model, lig_ring)]
+  boundary_dt[, series := substr(ring_label(lig_ring), 1, 2)]
+  boundary_dt <- boundary_dt[, .(n_q1 = sum(series == "Q1"),
+                                  n_q2 = sum(series == "Q2")), by = model]
+  boundary_dt <- boundary_dt[n_q1 > 0 & n_q2 > 0,
+                             .(model, y = n_q2 + 0.5)]
+  boundary_dt[, model := factor(model, levels = model_levels, labels = model_labels)]
+
+  time_agg <- heat_agg[fill_key %in% c("min_yes", "min_no") == FALSE]
+  marker_agg <- heat_agg[fill_key %in% c("min_yes", "min_no")]
 
   heat_p <- ggplot(heat_agg, aes(bin, row_key, fill = fill_key,
                                  pattern = fill_key)) +
     geom_tile_pattern(
+      data = time_agg,
       width = heat_bin_ns * 1.02, height = 0.9, na.rm = TRUE,
       pattern_type = "stripe",
       pattern_colour = NA,
@@ -1444,27 +1512,42 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
       pattern_density = 0.5,
       pattern_angle = 45
     ) +
+    geom_tile_pattern(
+      data = marker_agg,
+      width = marker_w, height = 0.9, na.rm = TRUE,
+      pattern_type = "none",
+      pattern_colour = NA
+    ) +
+    geom_vline(xintercept = max_t, colour = "grey60",
+               linewidth = 0.4, na.rm = TRUE) +
+    geom_segment(
+      data = boundary_dt, aes(x = 0, xend = max_t, y = y, yend = y),
+      inherit.aes = FALSE, colour = "grey50", linewidth = 0.4
+    ) +
     facet_grid(model ~ ., scales = "free_y", space = "free_y", drop = FALSE) +
     theme_custom(scale) +
     scale_fill_manual(
       values = c(absent = "#F2F2F2", initial = "#A6E6DB",
-                 final = "#0D2B52", both = "#0D2B52"),
-      breaks = c("absent", "initial", "final", "both"),
-      labels = c("absent", "present, initial set", "present, final set",
-                 "present, both sets"),
+                 final = "#0D2B52", both = "#0D2B52",
+                 min_yes = "#0D2B52", min_no = "#FFFFFF"),
+      breaks = c("absent", "initial", "final", "both", "min_yes"),
+      labels = c("absent", "present, initial", "present, minimized",
+                 "present, initial & minimized",
+                 "in final minimised structure"),
       name = NULL
     ) +
     scale_pattern_manual(
       values = c(absent = "none", initial = "none", final = "none",
-                 both = "stripe"),
-      breaks = c("absent", "initial", "final", "both"),
-      labels = c("absent", "present, initial set", "present, final set",
-                 "present, both sets"),
+                 both = "stripe", min_yes = "none", min_no = "none"),
+      breaks = c("absent", "initial", "final", "both", "min_yes"),
+      labels = c("absent", "present, initial", "present, minimized",
+                 "present, initial & minimized",
+                 "in final minimised structure"),
       name = NULL
     ) +
     scale_x_continuous("Time (ns)", breaks = seq(0, max_t, by = 25),
                        expand = c(0, 0)) +
-    coord_cartesian(xlim = c(0, max_t)) +
+    coord_cartesian(xlim = c(0, max_t + 3.2)) +
     scale_y_discrete(labels = function(x) row_lab[x], name = NULL) +
     guides(fill = guide_legend(nrow = 2)) +
     theme(legend.position = "top",
@@ -1499,7 +1582,7 @@ pi_stacking_summary <- function(ref, dt_long) {
   summ <- copy(ref)
   summ <- summ[in_initial == 1 | in_final == 1]
   summ[, set := fifelse(in_initial == 1 & in_final == 1, "both",
-                        fifelse(in_initial == 1, "initial", "final"))]
+                        fifelse(in_initial == 1, "initial", "minimized"))]
 
   occ <- dt_long[, .(occupancy = mean(present)), by = .(model, pair)]
   geo <- dt_long[present == 1, .(
@@ -1517,7 +1600,7 @@ pi_stacking_summary <- function(ref, dt_long) {
   summ[, `:=`(
     Model = paste0("model ", sub("task_", "", model)),
     Pair = paste0(ring_label(lig_ring), stack_sep,
-                  clean_dna_residue(base_residue)),
+                  pad_dna_residue(clean_dna_residue(base_residue))),
     `DNA residue` = clean_dna_residue(base_residue),
     `Ligand ring` = ring_label(lig_ring),
     Set = set,
@@ -1526,7 +1609,8 @@ pi_stacking_summary <- function(ref, dt_long) {
     `Mean angle (deg)` = round(mean_ang, 1),
     Mode = mode
   )]
-  summ <- summ[order(model, -in_final, -in_initial, lig_ring, base_residue)]
+  summ[, base_num := as.integer(gsub("[^0-9]", "", base_residue))]
+  summ <- summ[order(model, lig_ring, base_num, base_residue)]
   summ[, .(Model, Pair, `DNA residue`, `Ligand ring`, Set,
            `Occupancy`, `Mean d (A)`, `Mean angle (deg)`, Mode)]
 }
