@@ -32,9 +32,10 @@
 #     colours) for DT tables and ggtext markdown axis labels.
 #
 #   ring_label(ring)
-#     Maps RDKit ligand ring indices (R0-R3) to descriptive names (e.g.
-#     "Q1\u00b7pyr"). The mapping in ring_labels is ligand-specific —
-#     edit it for your ligand. Unmapped rings are returned unchanged.
+#     Maps ligand ring/unit names (Q0-Q1 fused-ring units by default, or
+#     R0-R3 with --no-simplify) to descriptive names (e.g. "Q1"). The
+#     mapping in ring_labels is ligand-specific — edit it for your ligand.
+#     Unmapped names are returned unchanged.
 #
 #   read_rmsd(file, simulation_time, extract_frequency, time_step)
 #     Reads a 2D RMSD .dat file into a long-format data.table with
@@ -183,17 +184,25 @@ element_span <- function(atom) {
   paste0("<span style='color:", col, ";'>", atom, "</span>")
 }
 
-# Descriptive labels for the ligand aromatic rings (RDKit ring indices
-# R0-R3). The example below is for piperaquine, which contains two fused
-# quinoline systems, each contributing a pyridine ring (pyr) and a benzene
+# Descriptive labels for the ligand aromatic systems. With the default
+# --simplify output of pi_stacking.py, fused aromatic rings are merged into
+# single units Q0, Q1, ... (the example below maps the two quinoline units of
+# piperaquine to Q1/Q2); the per-ring names R0-R3 (--no-simplify) are also
+# mapped, each quinoline contributing a pyridine ring (pyr) and a benzene
 # ring (benz): R0/R1 = quinoline Q1, R2/R3 = quinoline Q2. Edit the mapping
-# for your ligand; unmapped rings fall back to the raw ring index.
-ring_labels <- c(R0 = "Q1\u00b7pyr", R1 = "Q1\u00b7benz",
+# for your ligand; unmapped names fall back to the raw ring index.
+ring_labels <- c(Q0 = "Q1", Q1 = "Q2",
+                 R0 = "Q1\u00b7pyr", R1 = "Q1\u00b7benz",
                  R2 = "Q2\u00b7pyr", R3 = "Q2\u00b7benz")
 
 ring_label <- function(ring) {
   unname(ifelse(ring %in% names(ring_labels), ring_labels[ring], ring))
 }
+
+# Separator for pi-stacking pair labels (deliberately distinct from the \u00b7
+# used for H-bond contacts): two parallel bars evoke a stacked pair, e.g.
+# "Q1\u2225A10".
+stack_sep <- "\u2225"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1114,11 +1123,12 @@ contacts_summary <- function(ref, avg = NULL) {
 # LIGAND-DNA PI-STACKING TRACKING
 #
 # These functions mirror the ligand-DNA H-bond tracking above, but for
-# pi-stacking interactions between the aromatic rings of the ligand and the
-# aromatic base rings of the DNA. The trajectory data are precomputed
-# externally by <project>/MD/python/pi_stacking.py (copied from
-# templates/MD/python/pi_stacking.py; MDAnalysis + RDKit), which writes one
-# CSV per model with per-frame geometry for every ligand-ring x base-ring
+# pi-stacking interactions between the aromatic rings (or fused-ring units)
+# of the ligand and the aromatic base rings of the DNA. The trajectory data
+# are precomputed externally by <project>/MD/python/pi_stacking.py (copied
+# from templates/MD/python/pi_stacking.py; MDAnalysis + RDKit), which writes
+# one CSV per model with per-frame geometry for every ligand ring/unit x
+# base-ring
 # pair that comes within a buffer distance.
 # The workflow is:
 #   1. read_pi_stacking()        — per-frame presence/geometry of every pair
@@ -1328,10 +1338,14 @@ pdb_pi_stacking <- function(pdb, ring_defs_file, ligand_resname = "PQ",
 # ─── plot_pi_stacking_tracked ───────────────────────────────────────────
 # Plots the time evolution of a predefined set of ligand-DNA pi-stacking
 # pairs. Mirrors plot_contacts_tracked() (same single-panel heatmap layout
-# and colour scheme), with rows being ligand-ring x base-ring pairs instead
-# of H-bonds. Row labels use "<cleaned DNA base>\u00b7<descriptive ligand
-# ring>" (e.g. "A10\u00b7Q1\u00b7pyr"), where the ligand ring is named by
-# its quinoline system (Q1/Q2) and ring type (pyr/benz).
+# and colour scheme), with rows being ligand-ring/unit x base-ring pairs
+# instead of H-bonds. Row labels use "<descriptive ligand ring>\u2225<cleaned
+# DNA base>" (e.g. "Q1\u2225A10"), ordered by ring first so each ring's rows
+# group together and reading top-to-bottom traces the ring across nucleotides:
+# by default the pair is a fused quinoline unit (Q0/Q1 -> Q1/Q2); with
+# --no-simplify it is a single ring (R0-R3 -> "Q1\u00b7pyr" etc.), where the
+# ligand ring is named by its quinoline system (Q1/Q2) and ring type
+# (pyr/benz).
 #
 # Args:
 #   dt_long      — Long stacking data from read_pi_stacking().
@@ -1383,7 +1397,7 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
                             base_residue, lig_ring)])
   order_dt[,
     row_key := paste0(model, " | ", pair)
-  ][order(model, seq, -in_final, -in_initial, base_residue, lig_ring),
+  ][order(model, seq, -in_final, -in_initial, lig_ring, base_residue),
     row_level := seq_len(.N)
   ]
 
@@ -1391,10 +1405,10 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
                     order_dt[, .(pair, model, seq, row_key)],
                     by = c("pair", "model", "seq"))
 
-  # Row labels: "<cleaned DNA base>\u00b7<descriptive ligand ring>"
+  # Row labels: "<descriptive ligand ring>\u2225<cleaned DNA base>"
   row_lab <- setNames(
-    paste0(clean_dna_residue(order_dt$base_residue), "\u00b7",
-           ring_label(order_dt$lig_ring)),
+    paste0(ring_label(order_dt$lig_ring), stack_sep,
+           clean_dna_residue(order_dt$base_residue)),
     order_dt$row_key)
 
   missing_models <- setdiff(model_levels, unique(as.character(heat_agg$model)))
@@ -1478,7 +1492,7 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
 #
 # Returns:
 #   A data.table with columns: Model (labelled "model N"), Pair (as
-#   "<ligand ring>-<DNA base>", e.g. "Q1\u00b7pyr-A10"), DNA residue (cleaned),
+#   "<ligand ring>\u2225<DNA base>", e.g. "Q1\u2225A10"), DNA residue (cleaned),
 #   Ligand ring (descriptive), Set, Occupancy, Mean d (A), Mean angle (deg),
 #   Mode.
 pi_stacking_summary <- function(ref, dt_long) {
@@ -1502,7 +1516,8 @@ pi_stacking_summary <- function(ref, dt_long) {
 
   summ[, `:=`(
     Model = paste0("model ", sub("task_", "", model)),
-    Pair = paste0(ring_label(lig_ring), "-", clean_dna_residue(base_residue)),
+    Pair = paste0(ring_label(lig_ring), stack_sep,
+                  clean_dna_residue(base_residue)),
     `DNA residue` = clean_dna_residue(base_residue),
     `Ligand ring` = ring_label(lig_ring),
     Set = set,
@@ -1511,7 +1526,7 @@ pi_stacking_summary <- function(ref, dt_long) {
     `Mean angle (deg)` = round(mean_ang, 1),
     Mode = mode
   )]
-  summ <- summ[order(model, -in_final, -in_initial, base_residue)]
+  summ <- summ[order(model, -in_final, -in_initial, lig_ring, base_residue)]
   summ[, .(Model, Pair, `DNA residue`, `Ligand ring`, Set,
            `Occupancy`, `Mean d (A)`, `Mean angle (deg)`, Mode)]
 }

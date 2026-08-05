@@ -7,13 +7,19 @@ Precompute step (run externally, like the cpptraj H-bond analysis):
 
 Copy this script into your project's MD/python/ directory and edit the
 Configuration block below (PROJECT, EXPERIMENT, LIGAND_RESNAME, LIGAND_SMILES).
-For every aromatic ring of the ligand and every aromatic base ring of the DNA,
-it evaluates the standard geometric pi-stacking criteria for every analysed
-trajectory frame (stride 5, matching the H-bond analysis), without any prior
-knowledge of which interactions are formed. Aromatic ligand rings are
-enumerated automatically from the ligand SMILES (in the protonation state of
-the MD species) via RDKit, mapped onto the topology atom names; base rings use
-the standard DNA base ring atom sets.
+For every aromatic ring (or fused-ring unit, see --simplify) of the ligand
+and every aromatic base ring of the DNA, it evaluates the standard geometric
+pi-stacking criteria for every analysed trajectory frame (stride 5, matching
+the H-bond analysis), without any prior knowledge of which interactions are
+formed. Aromatic ligand rings are enumerated automatically from the ligand
+SMILES (in the protonation state of the MD species) via RDKit, mapped onto
+the topology atom names; base rings use the standard DNA base ring atom sets.
+
+By default (--simplify) fused aromatic rings are merged into single units
+(Q0, Q1, ...): the two rings of each quinoline are treated as one planar
+system (centroid + best-fit plane over all their atoms), so stacks occurring
+through either the pyridine or the benzene ring are counted together. Use
+--no-simplify for per-ring (R0, R1, ...) resolution.
 
 Criteria (tunable via command line):
   - parallel/displaced (sandwich): centroid distance <= dist_cut (5.5 A) and
@@ -89,12 +95,49 @@ def build_topology_mol(atom_names, bonds):
     return m.GetMol()
 
 
-def ligand_rings_from_topology(prmtop, ligand_resname, smiles):
-    """Map aromatic rings from SMILES onto topology atom names.
+def fused_ring_units(rings):
+    """Group fused aromatic rings into connected units.
+
+    Two rings are considered fused if they share at least two atoms (a bond).
+    Each connected component of the ring-intersection graph is one unit,
+    e.g. the two rings of a quinoline. Returns a list of sorted ring-index
+    lists, ordered by the lowest ring index in each component.
+    """
+    n = len(rings)
+    adj = [[] for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            if len(set(rings[i]) & set(rings[j])) >= 2:
+                adj[i].append(j)
+                adj[j].append(i)
+    seen = set()
+    units = []
+    for i in range(n):
+        if i in seen:
+            continue
+        stack, comp = [i], []
+        while stack:
+            k = stack.pop()
+            if k in seen:
+                continue
+            seen.add(k)
+            comp.append(k)
+            stack.extend(adj[k])
+        units.append(sorted(comp))
+    return units
+
+
+def ligand_rings_from_topology(prmtop, ligand_resname, smiles, simplify=True):
+    """Map aromatic rings (or fused-ring units) from SMILES onto atom names.
 
     Uses the heavy-atom graph only: the neutral SMILES molecule and the
     topology heavy-atom connectivity must be isomorphic (the protonation
     state of the MD species only affects hydrogen atoms).
+
+    With simplify=True (default), fused aromatic rings are merged into single
+    units named Q0, Q1, ... (the union of their topology atom names), so e.g.
+    the two rings of a quinoline are counted together. With simplify=False,
+    individual rings are returned as R0, R1, ...
 
     Returns a dict {ring_name: [atom names in topology]}.
     """
@@ -126,9 +169,19 @@ def ligand_rings_from_topology(prmtop, ligand_resname, smiles):
         if all(m2.GetAtomWithIdx(i).GetIsAromatic() for i in r)
     ]
     ring_names = {}
-    for i, ring in enumerate(rings):
-        topo_idx = [match[j] for j in ring]
-        ring_names[f"R{i}"] = [heavy.names[k] for k in topo_idx]
+    if simplify:
+        for qi, unit in enumerate(fused_ring_units(rings)):
+            atoms = []
+            for ri in unit:
+                for j in rings[ri]:
+                    name = heavy.names[match[j]]
+                    if name not in atoms:
+                        atoms.append(name)
+            ring_names[f"Q{qi}"] = atoms
+    else:
+        for i, ring in enumerate(rings):
+            topo_idx = [match[j] for j in ring]
+            ring_names[f"R{i}"] = [heavy.names[k] for k in topo_idx]
     return ring_names
 
 
@@ -239,6 +292,12 @@ def main():
     ap.add_argument("--dist-cut", type=float, default=5.5)
     ap.add_argument("--angle-cut", type=float, default=30.0)
     ap.add_argument("--offset-cut", type=float, default=2.0)
+    ap.add_argument("--simplify", action=argparse.BooleanOptionalAction,
+                    default=True,
+                    help="merge fused aromatic rings into single units "
+                         "(Q0, Q1, ...), e.g. the two rings of each quinoline "
+                         "counted together; use --no-simplify for per-ring "
+                         "(R0, R1, ...) resolution")
     args = ap.parse_args()
 
     exp_dir = os.path.join(LIGAND_BASE, EXPERIMENT)
@@ -252,7 +311,7 @@ def main():
     prmtop_ref = os.path.join(exp_dir, last_job, "task_0", "prep", "traj",
                               f"step10_0_{last_job}_stripped.prmtop")
     lig_rings = ligand_rings_from_topology(prmtop_ref, LIGAND_RESNAME,
-                                           LIGAND_SMILES)
+                                           LIGAND_SMILES, args.simplify)
     print("Ligand aromatic rings (topology atom names):")
     for rn, names in lig_rings.items():
         print("  ", rn, names)
