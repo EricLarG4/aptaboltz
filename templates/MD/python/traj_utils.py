@@ -144,6 +144,7 @@ def generate_trajectory_viewer(project, experiment, job, verbose=True, base_url=
         b.canvas(custom={
             "molstar_postprocessing": {
                 "enable_outline": True,
+                "outline_params": {"scale": 1, "threshold": 0.33},
             },
         })
 

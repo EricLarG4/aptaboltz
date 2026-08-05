@@ -56,24 +56,40 @@ _ESSENTIAL_BASE_COLORS = {
 
 # Nucleic residue name → single-letter base (mmCIF / PDB names)
 _ESSENTIAL_RESIDUE_BASE = {
-    "DA": "A", "DA5": "A", "DA3": "A",
-    "DC": "C", "DC5": "C", "DC3": "C",
-    "DG": "G", "DG5": "G", "DG3": "G",
-    "DT": "T", "DT5": "T", "DT3": "T",
+    "DA": "A",
+    "DA5": "A",
+    "DA3": "A",
+    "DC": "C",
+    "DC5": "C",
+    "DC3": "C",
+    "DG": "G",
+    "DG5": "G",
+    "DG3": "G",
+    "DT": "T",
+    "DT5": "T",
+    "DT3": "T",
     "DI": "G",
-    "A": "A", "A5": "A", "A3": "A",
-    "C": "C", "C5": "C", "C3": "C",
-    "G": "G", "G5": "G", "G3": "G",
-    "U": "T", "U5": "T", "U3": "T",
+    "A": "A",
+    "A5": "A",
+    "A3": "A",
+    "C": "C",
+    "C5": "C",
+    "C3": "C",
+    "G": "G",
+    "G5": "G",
+    "G3": "G",
+    "U": "T",
+    "U5": "T",
+    "U3": "T",
 }
 
 
 # pLDDT gradient matching PyMOL "tv_red yelloworange palecyan density"
 _PLDDT_GRADIENT = [
-    (50.0, (1.0, 0.0, 0.0)),        # tv_red
-    (63.3, (1.0, 0.647, 0.0)),      # yelloworange
+    (50.0, (1.0, 0.0, 0.0)),  # tv_red
+    (63.3, (1.0, 0.647, 0.0)),  # yelloworange
     (76.6, (0.686, 0.933, 0.933)),  # palecyan
-    (90.0, (0.3, 0.55, 0.75)),      # steelblue
+    (90.0, (0.3, 0.55, 0.75)),  # steelblue
 ]
 
 _PLDDT_MIN = 50.0
@@ -100,9 +116,11 @@ def _plddt_to_color(value):
             g = int((g0 + t * (g1 - g0)) * 255)
             b = int((b0 + t * (b1 - b0)) * 255)
             return f"#{r:02x}{g:02x}{b:02x}"
-    return f"#{int(_PLDDT_GRADIENT[-1][1][0]*255):02x}" \
-            f"{int(_PLDDT_GRADIENT[-1][1][1]*255):02x}" \
-            f"{int(_PLDDT_GRADIENT[-1][1][2]*255):02x}"
+    return (
+        f"#{int(_PLDDT_GRADIENT[-1][1][0]*255):02x}"
+        f"{int(_PLDDT_GRADIENT[-1][1][1]*255):02x}"
+        f"{int(_PLDDT_GRADIENT[-1][1][2]*255):02x}"
+    )
 
 
 def generate_plddt_viewer(cif_path, output_dir, verbose=True):
@@ -141,12 +159,14 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
 
         annotation = []
         for chain, seq, atom, b in zip(chain_col, seq_col, atom_col, b_col):
-            annotation.append({
-                "label_asym_id": str(chain),
-                "label_seq_id": int(seq),
-                "label_atom_id": str(atom),
-                "color": _plddt_to_color(float(b)),
-            })
+            annotation.append(
+                {
+                    "label_asym_id": str(chain),
+                    "label_seq_id": int(seq),
+                    "label_atom_id": str(atom),
+                    "color": _plddt_to_color(float(b)),
+                }
+            )
 
         ann_bytes = json.dumps(annotation).encode()
         ann_b64 = base64.b64encode(ann_bytes).decode()
@@ -169,7 +189,20 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
 
         # --- Build per-model snapshot ---
         b = mvs.create_builder()
-        b.canvas(custom={"molstar_postprocessing": {"enable_outline": True, "enable_ssao": False}})
+        b.canvas(
+            custom={
+                "molstar_postprocessing": {
+                    "enable_outline": True,
+                    "outline_params": {
+                        "scale": 2,
+                        "threshold": 0.66,
+                        "color": 0,
+                        "includeTransparent": True,
+                    },
+                    "enable_ssao": False,
+                }
+            }
+        )
         ds = b.download(url=cif_data_uri)
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
@@ -189,7 +222,11 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
 
         # Ligand (small molecules) → ball-and-stick with pLDDT coloring
         lig_comp = ms.component(selector="ligand")
-        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5, custom={"molstar_representation_params": {"ignoreLight": True}})
+        lig_rep = lig_comp.representation(
+            type="ball_and_stick",
+            size_factor=0.5,
+            custom={"molstar_representation_params": {"ignoreLight": True}},
+        )
         lig_rep.color_from_uri(
             uri=data_uri_ann,
             format="json",
@@ -216,12 +253,13 @@ def generate_plddt_viewer(cif_path, output_dir, verbose=True):
     if verbose:
         print(f"  Wrote multi-model pLDDT MVSJ: {mvsj_name}")
 
-    
+
 # =====================================================================
 
 
-def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True,
-                               stem_length=0):
+def generate_constraint_viewer(
+    cif_path, yaml_path, output_path, verbose=True, stem_length=0
+):
     """Generate a multi-snapshot .mvsj file with constraint-component colouring.
 
     Loads contact constraints from the Boltz-2 YAML file, finds connected
@@ -245,8 +283,7 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True,
         Number of stem residues to exclude from constraint colouring
         (any constraint with a residue number ``<= stem_length`` is dropped).
     """
-    constraints = _load_constraints(yaml_path, verbose=verbose,
-                                    stem_length=stem_length)
+    constraints = _load_constraints(yaml_path, verbose=verbose, stem_length=stem_length)
     if not constraints:
         if verbose:
             print("  No constraints found -- skipping constraint MVSJ generation.")
@@ -258,11 +295,13 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True,
     for idx, component in enumerate(components):
         color = CONSTRAINT_COLORS[idx % len(CONSTRAINT_COLORS)]
         for chain, resnum in component:
-            annotation.append({
-                "label_asym_id": chain,
-                "label_seq_id": resnum,
-                "color": color,
-            })
+            annotation.append(
+                {
+                    "label_asym_id": chain,
+                    "label_seq_id": resnum,
+                    "color": color,
+                }
+            )
 
     ann_bytes = json.dumps(annotation).encode()
     ann_b64 = base64.b64encode(ann_bytes).decode()
@@ -288,7 +327,20 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True,
         cif_data_uri = f"data:chemical/x-cif;base64,{cif_b64}"
 
         b = mvs.create_builder()
-        b.canvas(custom={"molstar_postprocessing": {"enable_outline": True, "enable_ssao": False}})
+        b.canvas(
+            custom={
+                "molstar_postprocessing": {
+                    "enable_outline": True,
+                    "outline_params": {
+                        "scale": 2,
+                        "threshold": 0.66,
+                        "color": 0,
+                        "includeTransparent": True,
+                    },
+                    "enable_ssao": False,
+                }
+            }
+        )
         ds = b.download(url=cif_data_uri)
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
@@ -309,7 +361,11 @@ def generate_constraint_viewer(cif_path, yaml_path, output_path, verbose=True,
 
         # Ligand → ball-and-stick → element (CPK) coloring
         lig_comp = ms.component(selector="ligand")
-        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5, custom={"molstar_representation_params": {"ignoreLight": True}})
+        lig_rep = lig_comp.representation(
+            type="ball_and_stick",
+            size_factor=0.5,
+            custom={"molstar_representation_params": {"ignoreLight": True}},
+        )
         lig_rep.color_from_source(
             schema="atom",
             category_name="_atom_site",
@@ -363,16 +419,17 @@ def _essential_base_annotation(block, essential_seqids):
                     continue
                 seqid = residue.seqid.num
                 if seqid in essential_seqids:
-                    annotation.append({
-                        "label_asym_id": chain_id,
-                        "label_seq_id": seqid,
-                        "color": _ESSENTIAL_BASE_COLORS[base],
-                    })
+                    annotation.append(
+                        {
+                            "label_asym_id": chain_id,
+                            "label_seq_id": seqid,
+                            "color": _ESSENTIAL_BASE_COLORS[base],
+                        }
+                    )
     return annotation
 
 
-def generate_essential_viewer(cif_path, essential_seqids, output_path,
-                              verbose=True):
+def generate_essential_viewer(cif_path, essential_seqids, output_path, verbose=True):
     """Generate a multi-snapshot .mvsj file colouring essential DNA bases.
 
     The DNA cartoon is white except for the essential residues, which are
@@ -395,7 +452,9 @@ def generate_essential_viewer(cif_path, essential_seqids, output_path,
     annotation = _essential_base_annotation(doc[0], set(essential_seqids))
     if not annotation:
         if verbose:
-            print("  No essential DNA residues found -- skipping essential MVSJ generation.")
+            print(
+                "  No essential DNA residues found -- skipping essential MVSJ generation."
+            )
         return
 
     ann_bytes = json.dumps(annotation).encode()
@@ -420,7 +479,20 @@ def generate_essential_viewer(cif_path, essential_seqids, output_path,
         cif_data_uri = f"data:chemical/x-cif;base64,{cif_b64}"
 
         b = mvs.create_builder()
-        b.canvas(custom={"molstar_postprocessing": {"enable_outline": True, "enable_ssao": False}})
+        b.canvas(
+            custom={
+                "molstar_postprocessing": {
+                    "enable_outline": True,
+                    "outline_params": {
+                        "scale": 2,
+                        "threshold": 0.66,
+                        "color": 0,
+                        "includeTransparent": True,
+                    },
+                    "enable_ssao": False,
+                }
+            }
+        )
         ds = b.download(url=cif_data_uri)
         ps = ds.parse(format="mmcif")
         ms = ps.model_structure()
@@ -441,7 +513,11 @@ def generate_essential_viewer(cif_path, essential_seqids, output_path,
 
         # Ligand → ball-and-stick → element (CPK) coloring
         lig_comp = ms.component(selector="ligand")
-        lig_rep = lig_comp.representation(type="ball_and_stick", size_factor=0.5, custom={"molstar_representation_params": {"ignoreLight": True}})
+        lig_rep = lig_comp.representation(
+            type="ball_and_stick",
+            size_factor=0.5,
+            custom={"molstar_representation_params": {"ignoreLight": True}},
+        )
         lig_rep.color_from_source(
             schema="atom",
             category_name="_atom_site",
@@ -506,9 +582,7 @@ def _load_constraints(yaml_path, verbose=True, stem_length=0):
             continue
         if len(token1) != 2 or len(token2) != 2:
             continue
-        if stem_length > 0 and (
-            token1[1] <= stem_length or token2[1] <= stem_length
-        ):
+        if stem_length > 0 and (token1[1] <= stem_length or token2[1] <= stem_length):
             continue
         pair = frozenset({(token1[0], token1[1]), (token2[0], token2[1])})
         unique_pairs.add(pair)
