@@ -717,6 +717,7 @@ def _write_minimized_mvsj(pdb_paths, output_path, verbose=True, title=None,
         b.canvas(custom={
             "molstar_postprocessing": {
                 "enable_outline": True,
+                "outline_params": {"scale": 2, "threshold": 0.66},
                 "enable_ssao": False,
             },
         })
