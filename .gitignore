@@ -69,3 +69,4 @@ _aptaboltz_site
 /.luarc.json
 deployment_readme.md
 .wrangler/cache/pages.json
+.wrangler/cache/wrangler-account.json
