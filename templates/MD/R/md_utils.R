@@ -17,6 +17,9 @@
 #     - Reading per-model constraint verification CSVs for minimised
 #       structures (written by process_minimized_constraint_verification
 #       in templates/MD/python/pymol_utils.py)
+#     - Extracting density time series from Amber production .out files
+#       and assessing density equilibration via a single-exponential
+#       plateau fit (Bogetti et al., J. Chem. Phys. 153, 054123 (2020))
 #
 # DEPENDENCIES
 #   data.table, stringr, ggplot2, ggrepel, patchwork, ggtext, ggpattern
@@ -120,6 +123,22 @@
 #     condition and job metadata, keeping only the most recent job per
 #     experiment.
 #
+#   read_density(file)
+#     Extracts the instantaneous-density time series from an Amber pmemd
+#     production .out file (one point per NSTEP block, stopping before
+#     the block-average section) into a data.table with t_ns, t_ps and
+#     seq/ligand/experiment/job/model metadata.
+#
+#   density_plateau(dt, slope_cut, df_cut, chi2_cut)
+#     Fits the density series to D(t) = D_i + (D_f - D_i)(1 - exp(-k t))
+#     per group (Bogetti et al. 2020 / cpptraj evalplateau) and tests the
+#     plateau criteria (final slope, |D_f - second-half mean|, reduced
+#     chi-squared). Returns one summary row per group.
+#
+#   plot_density(dt, plateau, max_t, scale)
+#     Line chart of the density series faceted by model, with the fitted
+#     plateau exponential overlaid.
+#
 # USAGE
 #   source("md_utils.R")
 #
@@ -134,7 +153,7 @@
 #   to follow the pattern:
 #     <project>/<category>/<method>/out/<experiment>_<replicate>/<model>/<file>.dat
 #   where:
-#     - path component [5]  = experiment identifier (e.g. "<seq>_<ligand>_rep1")
+#     - path component [5]  = experiment identifier (e.g. "CSS1_rep1")
 #     - path component [7]  = model name (e.g. "wildtype")
 #   The experiment name is split on '_' and joined with a middle dot (·).
 #
@@ -144,9 +163,6 @@
 #     sim_time and extract_freq if not provided explicitly.
 #   - The plot functions use rleid() to assign subgroup IDs for faceting,
 #     so models within each experiment are stacked vertically.
-#   - ring_labels is a per-ligand example (piperaquine); edit it for your
-#     ligand. The pi-stacking functions default ligand_resname to "PQ";
-#     pass your own residue name (matching ring_defs.json).
 #===============================================================================
 
 # ─── DEPENDENCIES ──────────────────────────────────────────────────────
@@ -192,13 +208,12 @@ element_span <- function(atom) {
   paste0("<span style='color:", col, ";'>", atom, "</span>")
 }
 
-# Descriptive labels for the ligand aromatic systems. With the default
+# Descriptive labels for the piperaquine aromatic systems. With the default
 # --simplify output of pi_stacking.py, fused aromatic rings are merged into
-# single units Q0, Q1, ... (the example below maps the two quinoline units of
-# piperaquine to Q1/Q2); the per-ring names R0-R3 (--no-simplify) are also
-# mapped, each quinoline contributing a pyridine ring (pyr) and a benzene
-# ring (benz): R0/R1 = quinoline Q1, R2/R3 = quinoline Q2. Edit the mapping
-# for your ligand; unmapped names fall back to the raw ring index.
+# single units Q0, Q1, ... (the two quinoline units map to Q1/Q2); the
+# per-ring names R0-R3 (--no-simplify) are also mapped, each quinoline
+# contributing a pyridine ring (pyr) and a benzene ring (benz): R0/R1 =
+# quinoline Q1, R2/R3 = quinoline Q2.
 ring_labels <- c(Q0 = "Q1", Q1 = "Q2",
                  R0 = "Q1\u00b7pyr", R1 = "Q1\u00b7benz",
                  R2 = "Q2\u00b7pyr", R3 = "Q2\u00b7benz")
@@ -563,7 +578,7 @@ plot_atomfluct <- function(
 
 
 # ─── read_contacts_avg ──────────────────────────────────────────────────
-read_contacts_avg <- function(file, ligand_residue = NULL) {
+read_contacts_avg <- function(file, ligand_residue = "HCY_47") {
   experiment <- strsplit(file, split = "[/\\\\]")[[1]][5]
   sequence <- strsplit(experiment, "_")[[1]][1]
   lgd <- strsplit(experiment, "_")[[1]][2]
@@ -574,16 +589,6 @@ read_contacts_avg <- function(file, ligand_residue = NULL) {
 
   dt <- fread(file, na.strings = "", strip.white = TRUE)
   setnames(dt, gsub("^#", "", names(dt)))
-
-  # Infer the ligand residue token (e.g. "HCY_47", "PQ_48") from the
-  # acceptor/donor labels if not supplied (DNA residues start with DC/DA/DG/DT)
-  if (is.null(ligand_residue)) {
-    tokens <- unique(c(sub("@.*", "", dt$Acceptor), sub("@.*", "", dt$Donor)))
-    tokens <- tokens[!is.na(tokens)]
-    lig <- unique(tokens[!grepl("^(DC|DA|DG|DT)", tokens)])
-    if (length(lig) == 0) return(NULL)
-    ligand_residue <- lig[1]
-  }
 
   # Keep only ligand-DNA (intermolecular), exclude ligand-ligand (intra)
   dt <- dt[(grepl(ligand_residue, Acceptor) |
@@ -627,7 +632,7 @@ read_contacts_avg <- function(file, ligand_residue = NULL) {
 
 
 # ─── read_contacts_matrix ───────────────────────────────────────────────
-read_contacts_matrix <- function(file, ligand_residue = NULL,
+read_contacts_matrix <- function(file, ligand_residue = "HCY_47",
                                  simulation_time = sim_time,
                                  extract_frequency = extract_freq) {
   experiment <- strsplit(file, split = "[/\\\\]")[[1]][5]
@@ -639,16 +644,6 @@ read_contacts_matrix <- function(file, ligand_residue = NULL,
       paste0(sequence, "\u00B7", lgd), "\n")
 
   dt <- fread(file, na.strings = "", strip.white = TRUE, header = TRUE)
-
-  # Infer the ligand residue token (e.g. "HCY_47", "PQ_48") from the column
-  # labels if not supplied (DNA residues start with DC/DA/DG/DT)
-  if (is.null(ligand_residue)) {
-    tokens <- unique(sub("@.*", "", names(dt)[grepl("@", names(dt))]))
-    tokens <- tokens[!is.na(tokens)]
-    lig <- unique(tokens[!grepl("^(DC|DA|DG|DT)", tokens)])
-    if (length(lig) == 0) return(NULL)
-    ligand_residue <- lig[1]
-  }
 
   lgd_cols <- grep(ligand_residue, names(dt), value = TRUE)
   if (length(lgd_cols) == 0) return(NULL)
@@ -811,7 +806,7 @@ read_contacts_long <- function(file, ligand_residue = NULL,
 # ─── pdb_hbond_contacts ─────────────────────────────────────────────────
 # Detects H-bonds in a single structure (PDB file) using the same geometric
 # criteria as the cpptraj `hbond` analysis used for the trajectories
-# (see <project>/MD/hbond_analysis.cpptraj):
+# (see CSS/MD/hbond_analysis.cpptraj and PQ4/MD/hbond_analysis.cpptraj):
 #   - donor-acceptor distance <= dist_cut (default 3.2 A)
 #   - D-H-A angle >= angle_cut (default 135 degrees)
 # Hydrogen-to-donor bonding is assigned to the nearest heavy atom within
@@ -1158,13 +1153,12 @@ contacts_summary <- function(ref, avg = NULL) {
 # LIGAND-DNA PI-STACKING TRACKING
 #
 # These functions mirror the ligand-DNA H-bond tracking above, but for
-# pi-stacking interactions between the aromatic rings (or fused-ring units)
-# of the ligand and the aromatic base rings of the DNA. The trajectory data
-# are precomputed externally by <project>/MD/python/pi_stacking.py (copied
-# from templates/MD/python/pi_stacking.py; MDAnalysis + RDKit), which writes
-# one CSV per model with per-frame geometry for every ligand ring/unit x
-# base-ring
-# pair that comes within a buffer distance.
+# pi-stacking interactions between the aromatic rings of the ligand (only
+# piperaquine, PQ, has aromatic rings in this project) and the aromatic base
+# rings of the DNA. The trajectory data are precomputed externally by
+# PQ4/MD/python/pi_stacking.py (MDAnalysis + RDKit; see the re-run note in
+# the report), which writes one CSV per model with per-frame geometry for
+# every ligand-ring x base-ring pair that comes within a buffer distance.
 # The workflow is:
 #   1. read_pi_stacking()        — per-frame presence/geometry of every pair
 #                                  from the external CSVs, zero-padded to the
@@ -1190,10 +1184,9 @@ contacts_summary <- function(ref, avg = NULL) {
 
 
 # ─── read_pi_stacking ───────────────────────────────────────────────────
-# Reads an external pi-stacking CSV (written by
-# <project>/MD/python/pi_stacking.py, from templates) into a long-format
-# data.table, one row per pair per analysed frame, with absent frames
-# zero-padded so `present` is defined for every frame.
+# Reads an external pi-stacking CSV (written by PQ4/MD/python/pi_stacking.py)
+# into a long-format data.table, one row per pair per analysed frame, with
+# absent frames zero-padded so `present` is defined for every frame.
 #
 # The CSV files live in <project>/MD/pi_stacking/ and are named
 # <experiment>_task_<n>.csv (e.g. "PQ4_PQ_constrained_task_0.csv"); the
@@ -1257,7 +1250,7 @@ read_pi_stacking <- function(file, stride = 5, simulation_time = sim_time) {
 # ─── pdb_pi_stacking ────────────────────────────────────────────────────
 # Evaluates the pi-stacking set of a single structure (PDB file, e.g. the
 # final minimised structure) in situ, using the same geometric criteria as
-# the Python script (<project>/MD/python/pi_stacking.py, from templates):
+# the Python script (PQ4/MD/python/pi_stacking.py):
 #   - aromatic ligand rings from ring_defs.json (written by the script)
 #   - aromatic base rings from the standard DNA base ring atom sets
 #     (same ring_defs.json)
@@ -1266,7 +1259,7 @@ read_pi_stacking <- function(file, stride = 5, simulation_time = sim_time) {
 #
 # Args:
 #   pdb             — Path to a PDB file (e.g. *_stripped.pdb).
-#   ring_defs_file  — Path to ring_defs.json (<project>/MD/pi_stacking/ring_defs.json).
+#   ring_defs_file  — Path to ring_defs.json (PQ4/MD/pi_stacking/ring_defs.json).
 #   ligand_resname  — Ligand residue name (default: "PQ").
 #   dist_cut        — Centroid distance cutoff in A (default: 5.5).
 #   angle_cut       — Parallel interplanar angle cutoff in degrees (default: 30).
@@ -1675,4 +1668,275 @@ read_minimized_constraints <- function(project) {
   )
   setorder(constraint_dt, sequence, condition, experiment, model)
   constraint_dt
+}
+
+
+# ─── read_density ───────────────────────────────────────────────────────
+# Extracts the time series of instantaneous density from an Amber pmemd
+# .out file (the production run) and returns a tidy data.table.
+#
+# Amber prints one data block per "NSTEP" line in the "4. RESULTS" section:
+# the block starting with "NSTEP = ..." reports instantaneous values
+# (including "Density") for that step. Parsing stops at the
+# "A V E R A G E S   O V E R  100000 S T E P S" marker that precedes the
+# final block-average section, so that the run-mean density and its RMS
+# fluctuation (which would otherwise appear as an artefactual jump in the
+# series) are not included.
+#
+# Metadata (seq, ligand, experiment, job, model) is extracted from the file
+# path using the same convention as read_rmsd()/read_contacts_long(): path
+# components 5 (experiment), 6 (job) and 7 (model, e.g. "task_0").
+#
+# Args:
+#   file — Path to a step10_*.out file.
+#
+# Returns:
+#   A data.table with columns: seq, ligand, experiment, job, model,
+#   t_ns, t_ps, density.
+read_density <- function(file) {
+  comps <- strsplit(file, split = "[/\\\\]")[[1]]
+  experiment <- comps[5]
+  sequence <- strsplit(experiment, "_")[[1]][1]
+  ligand <- strsplit(experiment, "_")[[1]][2]
+  job <- comps[6]
+  model <- comps[7]
+
+  cat("Reading", model, "for experiment",
+      paste0(sequence, "\u00B7", ligand), "\n")
+
+  lines <- readLines(file)
+
+  # Stop at the block-average section: the average NSTEP block that follows
+  # it carries the run-mean density / RMS fluctuation, not trajectory data.
+  marker <- grep("A V E R A G E S   O V E R", lines, fixed = TRUE)
+  marker <- if (length(marker) > 0) marker[1] else length(lines)
+
+  nstep_idx <- grep("NSTEP\\s*=\\s*\\d+\\s+TIME\\(PS\\)", lines)
+  nstep_idx <- nstep_idx[nstep_idx < marker]
+  if (length(nstep_idx) == 0) {
+    stop("no NSTEP blocks found before the block-average marker in: ", file)
+  }
+
+  time_ps <- as.numeric(sub(".*TIME\\(PS\\)\\s*=\\s*([0-9.]+).*", "\\1",
+                            lines[nstep_idx]))
+
+  # Density is printed on the 5th line after the NSTEP line. Fall back to a
+  # short forward scan if the offset is ever off (e.g. extra output lines).
+  density_idx <- nstep_idx + 5L
+  has_density <- grepl("Density", lines[density_idx])
+  density <- rep(NA_real_, length(nstep_idx))
+  density[has_density] <- as.numeric(sub(".*Density\\s*=\\s*([0-9.]+).*", "\\1",
+                                         lines[density_idx][has_density]))
+  off <- which(!has_density)
+  for (m in off) {
+    for (j in (nstep_idx[m] + 1L):(nstep_idx[m] + 6L)) {
+      if (grepl("Density", lines[j])) {
+        density[m] <- as.numeric(sub(".*Density\\s*=\\s*([0-9.]+).*", "\\1",
+                                     lines[j]))
+        break
+      }
+    }
+  }
+
+  data.table(
+    seq = sequence,
+    ligand = ligand,
+    experiment = paste0(sequence, "\u00B7", ligand),
+    job = job,
+    model = model,
+    t_ps = time_ps,
+    t_ns = time_ps / 1000,
+    density = density
+  )
+}
+
+
+# ─── density_plateau ────────────────────────────────────────────────────
+# Assesses whether the density time series of a production run has reached
+# a plateau, following Bogetti et al., J. Chem. Phys. 153, 054123 (2020)
+# (as implemented in cpptraj's "evalplateau" command).
+#
+# The density series D(t) is fitted to a single exponential:
+#   D(t) = D_initial + (D_final - D_initial) * (1 - exp(-k * t))
+# with time shifted so that the first point is at t = 0, and D_initial
+# seeded from the mean of the first 1% of the data. A plateau is reached
+# when all three criteria hold:
+#   1. the final slope of the fitted curve is < slope_cut (g cm-3 ps-1);
+#   2. |D_final - mean(second half of the data)| < df_cut (g cm-3);
+#   3. the (reduced) chi-squared of the fit is < chi2_cut.
+#
+# The chi-squared is computed as the mean squared residual (SSR / N), which
+# matches the paper's statement that the cutoff of 0.5 corresponds to a
+# total deviation of about 0.71 g cm-3 (sqrt(0.5)), and is scale-invariant
+# with respect to the number of points (cpptraj's raw SSR is calibrated for
+# its short, ~1 ns datasets and would spuriously fail a 100,000-point
+# series).
+#
+# Args:
+#   dt        — A data.table from read_density() with columns t_ns and
+#               density, plus grouping columns (seq, experiment, model, ...).
+#   slope_cut — Final-slope cutoff in g cm-3 ps-1 (default 1e-6).
+#   df_cut    - |D_final - second-half mean| cutoff in g cm-3 (default 0.02).
+#   chi2_cut  - Reduced chi-squared cutoff (default 0.5).
+#
+# Returns:
+#   A data.table with one row per group: n, d_initial, d_final, k, chi2,
+#   final_slope, df_diff, plateau_ns, reached, converged.
+density_plateau <- function(dt, slope_cut = 1e-6, df_cut = 0.02,
+                            chi2_cut = 0.5) {
+  group_cols <- setdiff(names(dt), c("t_ns", "t_ps", "density"))
+  fit <- function(t_ns, density) {
+    ord <- order(t_ns)
+    t0_ns <- t_ns[ord][1]
+    t <- t_ns[ord] - t0_ns
+    D <- density[ord]
+    n <- length(t)
+
+    # Least-squares fit of D(t) = DF - (DF - DI) * exp(-k * t). For a fixed
+    # k the parameters DF and (DF - DI) are linear in the model, so k is
+    # profiled over a log-spaced grid and the linear problem solved for each
+    # candidate. This is equivalent to the non-linear least squares of
+    # Bogetti et al. (2020) but is stable on near-constant density series,
+    # where the exponential amplitude is within the noise and Gauss-Newton
+    # type solvers diverge. The series is decimated for the fit (the trend
+    # is smooth); the reduced chi-squared is evaluated on the full series.
+    #
+    # k is bounded below by 1/t_max so that exp(-k*t) decays meaningfully
+    # within the observed window (exp(-k*t_max) <= exp(-1)). Without this
+    # bound, essentially-flat series return degenerate fits (k -> 0, with
+    # D_final unconstrained), which spurious fail the |D_final - second-half
+    # mean| criterion.
+    idx <- seq.int(1L, n, by = 100)
+    t_max <- t[n]
+    k_min <- max(1e-6, 1 / t_max)
+    k_grid <- 10^seq(log10(k_min), 2, length.out = 300)
+    best <- NULL
+    for (k in k_grid) {
+      X <- cbind(1, -exp(-k * t[idx]))
+      Q <- qr(X)
+      if (Q$rank < 2) next
+      b <- tryCatch(qr.coef(Q, D[idx]), error = function(e) NULL)
+      if (is.null(b) || anyNA(b)) next
+      resid <- D[idx] - drop(X %*% b)
+      sse <- sum(resid^2)
+      if (is.null(best) || sse < best$sse) {
+        best <- list(k = k, DF = b[1], DI = b[1] - b[2], sse = sse)
+      }
+    }
+
+    converged <- !is.null(best)
+    if (converged) {
+      k <- best$k
+      DI <- best$DI
+      DF <- best$DF
+      pred <- DI + (DF - DI) * (1 - exp(-k * t))
+    } else {
+      k <- NA_real_
+      DI <- mean(D)
+      DF <- mean(D)
+      pred <- rep(DF, n)
+    }
+    chi2 <- mean((D - pred)^2)
+    second_half <- D[seq.int(n %/% 2 + 1L, n)]
+    df_diff <- abs(DF - mean(second_half))
+
+    if (converged && is.finite(k) && k > 0) {
+      amp <- k * abs(DF - DI)                 # slope magnitude at t = 0 (ns-1)
+      final_slope <- amp * exp(-k * t_max) / 1000  # g cm-3 ps-1
+      if (amp > slope_cut * 1000) {
+        plateau_ns <- max(0, log(amp / (slope_cut * 1000)) / k)
+      } else {
+        plateau_ns <- 0
+      }
+    } else {
+      final_slope <- 0
+      plateau_ns <- 0
+    }
+
+    reached <- isTRUE(final_slope < slope_cut) &&
+      isTRUE(df_diff < df_cut) &&
+      isTRUE(chi2 < chi2_cut)
+
+    data.table(
+      n = n,
+      t0_ns = t0_ns,
+      d_initial = DI,
+      d_final = DF,
+      k = k,
+      chi2 = chi2,
+      final_slope = final_slope,
+      df_diff = df_diff,
+      plateau_ns = plateau_ns,
+      reached = as.integer(reached),
+      converged = as.integer(converged)
+    )
+  }
+
+  if (length(group_cols) == 0) {
+    fit(dt$t_ns, dt$density)
+  } else {
+    dt[, fit(t_ns, density), by = c(group_cols)]
+  }
+}
+
+
+# ─── plot_density ───────────────────────────────────────────────────────
+# Plots the density time series of a production run as a line chart,
+# faceted by model, with the fitted plateau exponential overlaid.
+#
+# Args:
+#   dt       — A data.table from read_density() (t_ns, density, model,
+#              experiment columns).
+#   plateau  — A data.table from density_plateau() with the same grouping
+#              columns plus d_initial, d_final, k and the first time point
+#              (t0_ns). NULL = no fitted curve (default).
+#   max_t    — Maximum time (ns) for the x-axis (default: 100).
+#   scale    — Scaling factor passed to theme_custom().
+#
+# Returns:
+#   A ggplot object.
+plot_density <- function(dt, plateau = NULL, max_t = 100, scale = 1) {
+  dt[
+    order(experiment, model),
+    subgroup_id := rleid(model),
+    by = experiment
+  ]
+  if (!is.null(plateau) && nrow(plateau) > 0) {
+    plateau[
+      order(experiment, model),
+      subgroup_id := rleid(model),
+      by = experiment
+    ]
+  }
+  max_plot <- max(c(max_t, max(dt$t_ns)))
+
+  p <- dt |>
+    ggplot(aes(t_ns, density)) +
+    geom_point(size = 0.3, color = "grey45", alpha = 0.5, stroke = 0) +
+    facet_grid(subgroup_id ~ experiment) +
+    scale_x_continuous("t (ns)", expand = c(0, 0), limits = c(0, max_plot)) +
+    scale_y_continuous("Density (g cm\u207B\u00B3)") +
+    theme_custom(scaling = scale)
+
+  if (!is.null(plateau) && nrow(plateau) > 0) {
+    curve_dt <- plateau[, {
+      tt <- seq(t0_ns, max_plot, length.out = 400)
+      k_eff <- ifelse(is.na(k), 0, pmax(k, 0))
+      .(
+        t_ns = tt,
+        d_fit = d_initial + (d_final - d_initial) *
+          (1 - exp(-k_eff * (tt - t0_ns)))
+      )
+    }, by = .(experiment, subgroup_id, model)]
+    p <- p +
+      geom_line(
+        data = curve_dt,
+        aes(t_ns, d_fit, group = model),
+        color = "firebrick",
+        linewidth = 0.75,
+        inherit.aes = FALSE
+      )
+  }
+
+  p
 }
