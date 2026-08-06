@@ -1079,19 +1079,17 @@ plot_contacts_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
       values = c(absent = "#F2F2F2", initial = "#FFA6D9",
                  final = "#C9303E", both = "#C9303E",
                  min_yes = "#C9303E", min_no = "#FFFFFF"),
-      breaks = c("absent", "initial", "final", "both", "min_yes"),
+      breaks = c("absent", "initial", "final", "both"),
       labels = c("absent", "present, initial", "present, minimized",
-                 "present, initial & minimized",
-                 "in final minimised structure"),
+                 "present, initial & minimized"),
       name = NULL
     ) +
     scale_pattern_manual(
       values = c(absent = "none", initial = "none", final = "none",
                  both = "stripe", min_yes = "none", min_no = "none"),
-      breaks = c("absent", "initial", "final", "both", "min_yes"),
+      breaks = c("absent", "initial", "final", "both"),
       labels = c("absent", "present, initial", "present, minimized",
-                 "present, initial & minimized",
-                 "in final minimised structure"),
+                 "present, initial & minimized"),
       name = NULL
     ) +
     scale_x_continuous("Time (ns)", breaks = seq(0, max_t, by = 25),
@@ -1486,17 +1484,6 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
                                           dummy_keys))]
   heat_agg[, model := factor(model, levels = model_levels, labels = model_labels)]
 
-  # ---- Q1/Q2 series separator ----
-  # Horizontal line between the Q1 (pyr/benz) and Q2 blocks of each model,
-  # placed right above the last Q2 row (Q2 sits at the bottom).
-  boundary_dt <- order_dt[, .(model, lig_ring)]
-  boundary_dt[, series := substr(ring_label(lig_ring), 1, 2)]
-  boundary_dt <- boundary_dt[, .(n_q1 = sum(series == "Q1"),
-                                  n_q2 = sum(series == "Q2")), by = model]
-  boundary_dt <- boundary_dt[n_q1 > 0 & n_q2 > 0,
-                             .(model, y = n_q2 + 0.5)]
-  boundary_dt[, model := factor(model, levels = model_levels, labels = model_labels)]
-
   time_agg <- heat_agg[fill_key %in% c("min_yes", "min_no") == FALSE]
   marker_agg <- heat_agg[fill_key %in% c("min_yes", "min_no")]
 
@@ -1520,29 +1507,23 @@ plot_pi_stacking_tracked <- function(dt_long, ref, max_t = 100, scale = 1,
     ) +
     geom_vline(xintercept = max_t, colour = "grey60",
                linewidth = 0.4, na.rm = TRUE) +
-    geom_segment(
-      data = boundary_dt, aes(x = 0, xend = max_t, y = y, yend = y),
-      inherit.aes = FALSE, colour = "grey50", linewidth = 0.4
-    ) +
     facet_grid(model ~ ., scales = "free_y", space = "free_y", drop = FALSE) +
     theme_custom(scale) +
     scale_fill_manual(
       values = c(absent = "#F2F2F2", initial = "#A6E6DB",
                  final = "#0D2B52", both = "#0D2B52",
                  min_yes = "#0D2B52", min_no = "#FFFFFF"),
-      breaks = c("absent", "initial", "final", "both", "min_yes"),
+      breaks = c("absent", "initial", "final", "both"),
       labels = c("absent", "present, initial", "present, minimized",
-                 "present, initial & minimized",
-                 "in final minimised structure"),
+                 "present, initial & minimized"),
       name = NULL
     ) +
     scale_pattern_manual(
       values = c(absent = "none", initial = "none", final = "none",
                  both = "stripe", min_yes = "none", min_no = "none"),
-      breaks = c("absent", "initial", "final", "both", "min_yes"),
+      breaks = c("absent", "initial", "final", "both"),
       labels = c("absent", "present, initial", "present, minimized",
-                 "present, initial & minimized",
-                 "in final minimised structure"),
+                 "present, initial & minimized"),
       name = NULL
     ) +
     scale_x_continuous("Time (ns)", breaks = seq(0, max_t, by = 25),
