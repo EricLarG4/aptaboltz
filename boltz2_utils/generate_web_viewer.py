@@ -359,18 +359,13 @@ def generate_constraint_viewer(
             field_name="color",
         )
 
-        # Ligand → ball-and-stick → element (CPK) coloring
+        # Ligand → ball-and-stick (element coloring removed: it relied on a
+        # top-level "_atom_site" category that is absent from these CIFs)
         lig_comp = ms.component(selector="ligand")
         lig_rep = lig_comp.representation(
             type="ball_and_stick",
             size_factor=0.5,
             custom={"molstar_representation_params": {"ignoreLight": True}},
-        )
-        lig_rep.color_from_source(
-            schema="atom",
-            category_name="_atom_site",
-            field_name="type_symbol",
-            palette=CategoricalPalette(colors="ElementSymbol"),
         )
 
         snap = b.get_snapshot(
@@ -511,18 +506,13 @@ def generate_essential_viewer(cif_path, essential_seqids, output_path, verbose=T
             field_name="color",
         )
 
-        # Ligand → ball-and-stick → element (CPK) coloring
+        # Ligand → ball-and-stick (element coloring removed: it relied on a
+        # top-level "_atom_site" category that is absent from these CIFs)
         lig_comp = ms.component(selector="ligand")
         lig_rep = lig_comp.representation(
             type="ball_and_stick",
             size_factor=0.5,
             custom={"molstar_representation_params": {"ignoreLight": True}},
-        )
-        lig_rep.color_from_source(
-            schema="atom",
-            category_name="_atom_site",
-            field_name="type_symbol",
-            palette=CategoricalPalette(colors="ElementSymbol"),
         )
 
         snap = b.get_snapshot(
