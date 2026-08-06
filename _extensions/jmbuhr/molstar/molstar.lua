@@ -109,12 +109,54 @@ end
 ---@param viewerFunctionString string
 ---@return string
 local function wrapInlineDiv(viewerFunctionString)
+  -- Viewers are created lazily when they become visible (IntersectionObserver)
+  -- and a global LRU pool keeps the number of live WebGL contexts safely below
+  -- the browser limit (16 in Chromium). Disposing an evicted viewer releases
+  -- its context (WEBGL_lose_context), so re-creating it later is cheap.
   return [[
     <div id="${appId}" class="molstar-app"></div>
     <script type="text/javascript">
-    molstar.Viewer.create("${appId}", ${options}).then(viewer => {
+    (function() {
+      var appId = "${appId}";
+      var options = ${options};
+      var container = document.getElementById(appId);
+
+      function build() {
+        container.__molstarLive = true;
+        molstar.Viewer.create(appId, options).then(function(viewer) {
+          if (!container || !container.isConnected) {
+            try { viewer.dispose(); } catch(e) {}
+            return;
+          }
+          var pool = window.__molstarPool = window.__molstarPool || [];
+          if (pool.length >= 14) {
+            var evicted = pool.shift();
+            try { evicted.dispose(); } catch(e) {}
+            var ec = evicted.__molstarContainer;
+            if (ec) ec.__molstarLive = false;
+          }
+          viewer.__molstarContainer = container;
+          pool.push(viewer);
     ]] .. viewerFunctionString .. [[
-    });
+        });
+      }
+
+      function ensureBuilt() {
+        if (!container || container.__molstarLive) return;
+        build();
+      }
+
+      if (container && 'IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function(entries) {
+          entries.forEach(function(entry) {
+            if (entry.isIntersecting) ensureBuilt();
+          });
+        }, { rootMargin: '200px' });
+        io.observe(container);
+      } else {
+        ensureBuilt();
+      }
+    })();
     </script>
     ]]
 end
