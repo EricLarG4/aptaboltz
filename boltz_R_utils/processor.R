@@ -213,6 +213,12 @@ table_confidence <- function(confidence_dt, project = get("project", parent.fram
     ]
   }
 
+# 2b. Drop palette entries that have no matching column.  Boltz does not
+  # emit every metric in every run (complex_pae / complex_ipae are absent from
+  # newer versions), and the styling loop below iterates the palette rather
+  # than the data, so an unmatched entry is a hard error.
+  color_list <- color_list[names(color_list) %in% names(confidence_dt)]
+
   # 3. Bootstrap 5 theme via bslib
   bs_theme <- bslib::bs_theme(
     version = 5,
