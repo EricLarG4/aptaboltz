@@ -139,14 +139,26 @@ def prep_model(
                 pred_lgd = "LIG1"
                 print(f"Ligand '{output_lgd}' not found; using 'LIG1' from prediction.")
 
-            # Align the reference ligand PDB onto the predicted ligand
+            # Align the reference ligand PDB onto the predicted ligand.
+            # BOTH selections must be OBJECT-SCOPED:
+            #  - the reference is selected by object name (== lgd_file), never by
+            #    "resn UNL": its residue name is inherited from the input mol2's
+            #    substructure record and is only "UNL" when that mol2 carries no
+            #    substructure name, so "resn UNL" silently matches 0 atoms for a
+            #    mol2 exported from the PDB.
+            #  - the predicted ligand must be scoped to the model object as well:
+            #    once the reference is loaded, an unscoped "resn <lgd>" also
+            #    matches the reference's atoms and inflates the count.
+            # Boltz predictions carry no hydrogens while the mol2-derived
+            # reference does, so the reference hydrogens are stripped first.
             cmd.load(lgd_path)
+            pred_sel = f"input_model_{models[model]} and resn {pred_lgd}"
+            cmd.remove(f"{lgd_file} and hydro")
             if use_pair_fit:
-                cmd.remove("resn UNL and h.")
-                cmd.pair_fit("resn UNL", f"resn {pred_lgd}")
+                cmd.pair_fit(lgd_file, pred_sel)
             else:
-                cmd.align("resn UNL", f"resn {pred_lgd}")
-            cmd.alter("resn UNL", f"resn = '{output_lgd}'")
+                cmd.align(lgd_file, pred_sel)
+            cmd.alter(lgd_file, f"resn = '{output_lgd}'")
             cmd.alter(f"{lgd_file} and resn {output_lgd}", f"resi={n_res + 1}")
             print(f"Ligand {output_lgd} aligned and relabeled to resi {n_res + 1}.")
 
