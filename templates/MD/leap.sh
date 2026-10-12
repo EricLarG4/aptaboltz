@@ -10,7 +10,10 @@
 #   to PDB format.
 #
 #   The script mirrors the directory structure of pdb_for_md/ and writes
-#   all output into leap/<PREFIX>_<LIGAND_UPPER>_constrained/.
+#   all output into leap/<PREFIX>_<LIGAND_UPPER>${SUFFIX}/.
+#
+#   ${SUFFIX} is "_constrained" by default.  Pass -u to drop it, which is
+#   required when model_prep.py was run with --unconstrained.
 #
 # DEPENDENCIES
 #   - AmberTools (tleap, ambpdb)
@@ -18,22 +21,26 @@
 #
 # USAGE
 #   ./leap.sh [-p prefix] [-l ligand] [-s start_model] [-e end_model] \
-#             [-n num_na] [-m num_mg] [-c total_cl] [-h]
+#             [-n num_na] [-m num_mg] [-c total_cl] [-u] [-h]
 #
 # ARGUMENTS
 #   -p <str>     Project/sequence prefix for directory names (default: PLACEHOLDER_PREFIX).
-#                Used in pdb_for_md/<PREFIX>_<UPPER>_constrained/ and
-#                leap/<PREFIX>_<UPPER>_constrained/ paths.
+#                Used in pdb_for_md/<PREFIX>_<UPPER>${SUFFIX}/ and
+#                leap/<PREFIX>_<UPPER>${SUFFIX}/ paths.
 #   -l <name>    Ligand name (default: PLACEHOLDER_LIGAND).
 #                Use -l free for no-ligand mode (no prepin/frcmod needed).
 #                Used for ff/${ligand}_resp.prepin/.frcmod and
-#                pdb_for_md/<PREFIX>_<UPPER>_constrained paths.
+#                pdb_for_md/<PREFIX>_<UPPER>${SUFFIX} paths.
 #   -s <int>     Starting model index, inclusive (default: 0)
 #   -e <int>     Ending model index, inclusive (default: 24)
 #   -n <int>     Number of Na⁺ ions to add (default: 65)
 #   -m <int>     Number of Mg²⁺ ions to add (default: 1)
 #   -c <int>     Total number of Cl⁻ ions (default: 22).
 #                Automatically split between MgCl₂ and NaCl.
+#   -u           Unconstrained: omit the "_constrained" suffix from the
+#                pdb_for_md/ and leap/ directory names.  Only use this if
+#                model_prep.py was run with --unconstrained; otherwise tLEAP
+#                will look for PDBs in a directory that does not exist.
 #   -h           Show this help message and exit.
 #
 # Cl⁻ DISTRIBUTION
@@ -44,10 +51,10 @@
 # INPUT FILES REQUIRED
 #   ff/${ligand}_resp.prepin     — Amber prepin library (from ligand_prep.sh)
 #   ff/${ligand}_resp.frcmod     — Force-field modifications (from ligand_prep.sh)
-#   pdb_for_md/<PREFIX>_<UPPER>_constrained/input_model_${i}.pdb  — PDB models
+#   pdb_for_md/<PREFIX>_<UPPER>${SUFFIX}/input_model_${i}.pdb  — PDB models
 #
 # OUTPUT STRUCTURE
-#   leap/<PREFIX>_<LIGAND_UPPER>_constrained/
+#   leap/<PREFIX>_<LIGAND_UPPER>${SUFFIX}/
 #     tleap.in                    — Combined tLEAP input script
 #     cplx_${i}.prmtop            — Amber topology (one per model)
 #     cplx_${i}.rst7              — Amber restart/coords (one per model)
@@ -76,7 +83,7 @@
 #
 # TROUBLESHOOTING
 #   - Ensure the ligand prepin and frcmod files exist in ff/ before running.
-#   - Check that PDB files exist in pdb_for_md/<PREFIX>_<UPPER>_constrained/.
+#   - Check that PDB files exist in pdb_for_md/<PREFIX>_<UPPER>${SUFFIX}/
 #   - Use ions.R to calculate appropriate Na⁺/Mg²⁺/Cl⁻ counts for your system.
 #   - If tleap reports missing parameters, review the frcmod file from
 #     ligand_prep.sh for ATTN warnings.
@@ -91,9 +98,11 @@ end_model=24
 num_na=65
 num_mg=1
 total_cl=22
+# Directory-name suffix; -u omits it (must match model_prep.py's --unconstrained).
+suffix="_constrained"
 #
 # Parse command line arguments
-while getopts "p:l:s:e:n:m:c:h" opt; do
+while getopts "p:l:s:e:n:m:c:uh" opt; do
   case $opt in
     p) prefix="$OPTARG" ;;
     l) ligand="$OPTARG" ;;
@@ -102,8 +111,9 @@ while getopts "p:l:s:e:n:m:c:h" opt; do
     n) num_na="$OPTARG" ;;
     m) num_mg="$OPTARG" ;;
     c) total_cl="$OPTARG" ;;
+    u) suffix="" ;;
     h)
-      echo "Usage: $0 [-p prefix] [-l ligand] [-s start_model] [-e end_model] [-n num_na] [-m num_mg] [-c total_cl]"
+      echo "Usage: $0 [-p prefix] [-l ligand] [-s start_model] [-e end_model] [-n num_na] [-m num_mg] [-c total_cl] [-u]"
       echo ""
       echo "Arguments:"
       echo "  -p  Project/sequence prefix (default: PLACEHOLDER_PREFIX)"
@@ -114,9 +124,12 @@ while getopts "p:l:s:e:n:m:c:h" opt; do
       echo "  -m  Number of Mg2+ ions (default: 1)"
       echo "  -c  Total number of Cl- ions (default: 22)"
       echo "      (Cl- are divided between NaCl and MgCl2 additions)"
+      echo "  -u  Unconstrained: drop the _constrained suffix from"
+      echo "      pdb_for_md/ and leap/ directory names."
+      echo "      Use only if model_prep.py was run with --unconstrained."
       exit 0
       ;;
-    *) echo "Usage: $0 [-p prefix] [-l ligand] [-s start_model] [-e end_model] [-n num_na] [-m num_mg] [-c total_cl]"
+    *) echo "Usage: $0 [-p prefix] [-l ligand] [-s start_model] [-e end_model] [-n num_na] [-m num_mg] [-c total_cl] [-u]"
        exit 1 ;;
   esac
 done
@@ -135,7 +148,7 @@ cl_mg=$((2 * num_mg))
 cl_na=$((total_cl - cl_mg))
 
 # Create leap directory and output subdirectory if they don't exist
-leap_subdir="leap/${prefix}_${ligand_upper}_constrained"
+leap_subdir="leap/${prefix}_${ligand_upper}${suffix}"
 mkdir -p "$leap_subdir"
 
 # Create a single tleap input file
@@ -163,10 +176,20 @@ fi
 
 for i in $(seq "$start_model" "$end_model"); do
   cat >> "${leap_subdir}/tleap.in" << EOF
-oligo${i} = loadPDB pdb_for_md/${prefix}_${ligand_upper}_constrained/input_model_${i}.pdb
+oligo${i} = loadPDB pdb_for_md/${prefix}_${ligand_upper}${suffix}/input_model_${i}.pdb
 solvateOct oligo${i} OPCBOX 14.0
-addIonsRand oligo${i} Na+ ${num_na} Cl- ${cl_na}
-addIonsRand oligo${i} MG ${num_mg} Cl- ${cl_mg}
+EOF
+  # Each addIonsRand is emitted only when its counter-ion count is > 0.
+  # Amber rejects "#ion1 = 0" when a second ion is also named
+  # ("'0' is not allowed as the value for the second ion"), so "-m 0"
+  # (NaCl only, no MgCl2) must omit the MG line entirely.
+  if [ "$num_na" -gt 0 ]; then
+    echo "addIonsRand oligo${i} Na+ ${num_na} Cl- ${cl_na}" >> "${leap_subdir}/tleap.in"
+  fi
+  if [ "$num_mg" -gt 0 ]; then
+    echo "addIonsRand oligo${i} MG ${num_mg} Cl- ${cl_mg}" >> "${leap_subdir}/tleap.in"
+  fi
+  cat >> "${leap_subdir}/tleap.in" << EOF
 saveamberparm oligo${i} ${leap_subdir}/cplx_${i}.prmtop ${leap_subdir}/cplx_${i}.rst7
 EOF
 done
