@@ -234,9 +234,9 @@ def _resolve_pairs(
 
     Resolution logic
     -----------------
-    1. ``None`` or a flat ``list[ResiduePair]`` → returned as-is (or empty list).
-    2. ``dict[str, list[ResiduePair]]`` → lookup by *seq_name*.
-    3. ``dict[str, dict[str, list[ResiduePair]]]`` → lookup
+    1. ``None`` or a flat ``list[ResiduePair]`` -> returned as-is (or empty list).
+    2. ``dict[str, list[ResiduePair]]`` -> lookup by *seq_name*.
+    3. ``dict[str, dict[str, list[ResiduePair]]]`` -> lookup
        ``[seq_name][ligand_name]``; if the ligand is not listed, fall back to
        ``[seq_name]["*"]`` (wildcard) or empty list.
 
@@ -442,7 +442,7 @@ def generate_boltz2_yamls(
             },
             **kwargs,
         )
-        print(f"  ✓ {path_base}")
+        print(f"  [ok] {path_base}")
         generated.append(path_base)
 
         # If there are additional pairs, also generate the constrained version
@@ -466,7 +466,7 @@ def generate_boltz2_yamls(
                 },
                 **kwargs,
             )
-            print(f"  ✓ {path_constrained}")
+            print(f"  [ok] {path_constrained}")
             generated.append(path_constrained)
     
     print(f"\n{len(generated)} file(s) written to {output_dir} \n")

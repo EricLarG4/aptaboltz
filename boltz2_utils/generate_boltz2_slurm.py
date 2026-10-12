@@ -122,7 +122,7 @@ def generate_boltz2_slurm_files(
       ``generate_boltz2_yamls``).
 
     The SLURM job name and staged input filename are derived from each YAML
-    stem (e.g. ``CSS1_C0R.yaml`` → job ``CSS1_C0R``).
+    stem (e.g. ``CSS1_C0R.yaml`` -> job ``CSS1_C0R``).
 
     Parameters
     ----------
@@ -176,7 +176,7 @@ def generate_boltz2_slurm_files(
         slurm_path = out_dir / slurm_filename
         slurm_path.write_text(content, newline="\n")
         written.append(slurm_path)
-        print(f"  ✓ {slurm_path}")
+        print(f"  [ok] {slurm_path}")
 
     print(f"\n{len(written)} SLURM file(s) written to {out_dir}\n")
     return written
