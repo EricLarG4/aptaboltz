@@ -78,9 +78,9 @@ param(
 )
 
 # --- HARDCODED PATHS & SETTINGS (EDIT FOR YOUR SYSTEM) ---
-$Multiwfn   = "E:\sDrive\Projects\boltz\CSS\MD\Multiwfn_PLACEHOLDER_VERSION_bin_Win64\Multiwfn.exe"
-$MoldenDir  = "E:\sDrive\Projects\boltz\CSS\MD\QM"
-$OutDir     = "E:\sDrive\Projects\boltz\CSS\MD\QM"
+$Multiwfn   = "C:\PLACEHOLDER_PATH\Multiwfn_PLACEHOLDER_VERSION_bin_Win64\Multiwfn.exe"
+$MoldenDir  = "C:\PLACEHOLDER_PROJECT\MD\QM"
+$OutDir     = "C:\PLACEHOLDER_PROJECT\MD\QM"
 # ---------------------------------------------------------
 
 $gasMolden  = Join-Path $MoldenDir "SP_gas.molden"
