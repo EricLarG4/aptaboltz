@@ -20,6 +20,29 @@ Three mutually exclusive modes of operation:
 3. Console script (if boltz2_utils is installed):
        boltz-process-output --project CSS --model CSS1 --ligand-dict "..." --name-map "..."
 
+WORKING DIRECTORY MATTERS
+-------------------------
+`project` is resolved relative to the CURRENT WORKING DIRECTORY, not to
+this script's location and not to the repository root.  Each experiment is
+looked up at `{project}/{model}_{ligand}{suffix}/`, so running this from
+inside the project directory makes it search for a nested path that does
+not exist:
+
+    cd my_project
+    python output_file_processing.py --config output_file_config.json
+        -> looks for my_project/my_project/<exp>/  ... skips everything
+
+The failure is SILENT: each experiment prints
+"Experiment does not exist: ... | skipping" and the script exits 0, so it
+looks like it succeeded.  Always launch from the directory that CONTAINS
+the project folder:
+
+    cd <repo root>
+    python my_project/output_file_processing.py --config my_project/output_file_config.json
+
+The same applies to the console scripts, and to `input_file_generator.py`
+(README §3.4) — both resolve `project` against the cwd.
+
 For full documentation see README.md §5.
 """
 
