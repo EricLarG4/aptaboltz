@@ -21,24 +21,85 @@ pip install -e ./boltz2_utils
 | `process_boltz_results_nolgd.py` | Variant of the above for ligand-free (apo) predictions |
 | `base.py` | PyMOL base styling and colour scheme (imported by the processing scripts) |
 | `generate_web_viewer.py` | Generate MolViewSpec JSON (.mvsj) files for interactive 3D visualisation in the Mol* web viewer (alternative to PyMOL sessions) |
+| `cli/generate_input.py` | Console-script entry point `boltz-generate-input` — generate YAML + SLURM (README §3) |
+| `cli/process_output.py` | Console-script entry point `boltz-process-output` — process prediction outputs (README §5) |
+
+## Console scripts
+
+Installing the package provides two commands, callable from any directory
+(no need to copy a script into your project):
+
+| Command | Purpose |
+|---------|---------|
+| `boltz-generate-input` | Generate Boltz-2 YAML + SLURM input files (README §3) |
+| `boltz-process-output` | Process prediction outputs (README §5) |
+
+Both accept the same flags as the copied template scripts.
 
 ## Usage examples
 
+Most projects should not call these functions directly — copy
+`templates/input_file_generator.py` and `templates/output_file_processing.py`
+into your project, or use the console scripts above. The examples below are
+for reference when writing your own generator.
+
 ### Generate input files
 
-Edit your project's `input_file_generator.py` (from `templates/`), then run:
+`generate_boltz2_yamls()` takes a single flat list of *entries* — one dict
+per (sequence × ligand) combination. There are no separate `sequences` or
+`ligands` parameters; you build the cross-product yourself.
 
 ```python
-from boltz2_utils.generate_boltz2_yaml import generate_yaml
+from boltz2_utils.generate_boltz2_yaml import generate_boltz2_yamls
 
-generate_yaml(
-    project="MyProject",
-    sequences=[...],
-    ligands={...},
-    constraints={...},
+entries = [
+    {
+        "seq_name": "Seq1",              # required — filename prefix
+        "sequence": "GGGACGACGCCC...",   # required — the nucleotide sequence
+        "ligand_name": "L01",            # required — "free" omits the ligand block
+        "ccd": "C0R",                    # CCD code, or...
+        "smiles": None,                  # ...a SMILES string
+    },
+    {
+        "seq_name": "Seq1",
+        "sequence": "GGGACGACGCCC...",
+        "ligand_name": "free",           # ligand-free control
+        "ccd": None,
+        "smiles": None,
+    },
+]
+
+paths = generate_boltz2_yamls(
+    entries,
     output_dir="MyProject/yaml",
+    stem_length=8,
+    max_distance=4.0,
+    additional_pairs=None,
 )
 ```
+
+Required per-entry keys: `seq_name`, `sequence`, `ligand_name`.
+
+Optional per-entry overrides (each falls back to the function-level default
+when omitted):
+
+| Key | Effect |
+|-----|--------|
+| `ccd` / `smiles` | Ligand identity. `ccd` wins if both are set. Both may be `None` when `ligand_name` is `"free"` (case-insensitive), which omits the ligand block entirely |
+| `stem_length` | Overrides the global `stem_length` for this entry |
+| `max_distance` | Overrides the global `max_distance` for this entry |
+| `molecule_type` | Overrides the global `molecule_type` for this entry |
+| `msa` | Path to an MSA file, relative to the YAML (`msa/<seq_name>.a3m`) |
+| `additional_pairs` | Overrides the global `additional_pairs` for this entry |
+| `chain_id` | Sequence chain ID (default `"A"`) |
+| `ligand_chain` | Ligand chain ID (default `"B"`) |
+| `cyclic` | Cyclic sequence (default `False`; forced `False` for `protein`) |
+
+Note the function-level default for `max_distance` is **5.0**, whereas the
+`--max-distance` CLI flag defaults to **4.0** — set it explicitly if it matters.
+
+Returns a list of `pathlib.Path` for the YAML files written; feed that to
+`generate_boltz2_slurm_files()` to emit the SLURM scripts.
 
 ### Post-process predictions
 
@@ -47,9 +108,34 @@ from boltz2_utils.process_boltz_results import process_single_experiment
 
 process_single_experiment(
     project="MyProject",
-    experiment="Seq1_L01",
-    output_dir="MyProject/outputs",
+    experiment_name="Seq1_L01",
+    LGD_DICT={"Aptamer1": "L01", "free": "free"},
+    NAME_MAP={"L01": "Aptamer1"},
+    job_dirs="last",
 )
 ```
+
+There is no `output_dir` parameter — output paths are derived from `project`
+and the experiment name. Full signature:
+
+```
+process_single_experiment(project, experiment_name, LGD_DICT=None, NAME_MAP=None,
+                          ligand_processing=True, job_dirs=None, generate_mvsj=True)
+```
+
+| Parameter | Effect |
+|-----------|--------|
+| `project` | Project directory name |
+| `experiment_name` | Experiment folder name, e.g. `Seq1_L01` (note: `experiment_name`, not `experiment`) |
+| `LGD_DICT` | Display-name → CCD-code mapping used to resolve ligands |
+| `NAME_MAP` | CCD code → display-name mapping |
+| `ligand_processing` | Set `False` to skip ligand extraction and chirality analysis |
+| `job_dirs` | `None` (all J-directories), `"last"`, a JID, or a list of JIDs |
+| `generate_mvsj` | Set `False` to skip Mol* `.mvsj` viewer generation |
+
+For per-sequence fan-out use `process_experiment(project, model, experiment, ...)`,
+which iterates over the ligands in `LGD_DICT`. To verify contact restraints
+against the predicted structures, call `process_constraint_verification(project,
+model, experiment)`.
 
 Produces aligned PyMOL sessions (`.pse`), ligand SDF files, chirality grid images (`.png`), and aggregated metrics tables (`.csv`).

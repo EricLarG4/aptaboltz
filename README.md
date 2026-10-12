@@ -302,12 +302,37 @@ This script:
 ### 1.4 Verify Installation
 
 ```bash
-# Python / boltz2_utils
+# Python / boltz2_utils — check the INTERPRETER as well as the import.
+# Both lines below must be printed, and sys.executable must point inside
+# your boltz environment.
+python -c "import sys; print(sys.executable)"
 python -c "from boltz2_utils.generate_boltz2_yaml import generate_boltz2_yamls; print('boltz2_utils OK')"
 
 # R packages (data.table, stringr, ggrepel needed by §9.10)
 Rscript -e "library(data.table); library(stringr); library(ggrepel)"
 ```
+
+Always run `conda activate boltz` first. If `python` resolves to a different
+interpreter (e.g. a base Anaconda install at `~/anaconda3/python.exe`), the
+import check fails with `ModuleNotFoundError: No module named 'boltz2_utils'`
+even though the package is installed correctly — the install lives in the
+environment, not in the interpreter that happens to be first on `PATH`.
+Re-activate the environment, or call the environment's interpreter directly:
+
+```bash
+conda activate boltz   # or: ~/anaconda3/envs/boltz/python.exe
+```
+
+> **Windows / PowerShell:** a `.py` file cannot be executed by path. Always
+> prefix it with the interpreter — `python my_project\input_file_generator.py
+> --config my_config.json`. Running `my_project\input_file_generator.py` on its
+> own does nothing at all: it produces no output *and* no error, which is easy
+> to mistake for a successful run. (This applies to PowerShell and to `cmd`;
+> under WSL or Git Bash the shebang-less invocation behaves the same way.)
+>
+> In this repository all console output is plain ASCII, so the generators and
+> post-processing scripts run on a default Windows console without needing
+> `PYTHONUTF8` or any code-page change.
 
 ---
 
@@ -327,13 +352,23 @@ For each new structure-prediction project (e.g. `my_project`):
 2. Choose your workflow:
 
    **Option A — Config file (recommended):**
-   Copy the generator script and create a JSON config with your sequences
-   and ligands:
+   Copy the generator script **and** the example config, then edit the
+   config's `PLACEHOLDER_` values with your project's sequences and ligands:
    ```bash
-   cp templates/input_file_generator.py  my_project/
+   cp templates/input_file_generator.py   my_project/
+   cp templates/input_file_config.json    my_project/
    ```
-   Then run `python my_project/input_file_generator.py --config config.json`
+   Then run:
+   ```bash
+   python my_project/input_file_generator.py --config my_project/input_file_config.json
+   ```
    (see [§3.1](#31-config-file-mode-recommended) for the config format).
+
+   > **The config is written by you, never by the script.** The data flow is
+   > one-way — the generator *reads* `input_file_config.json` and *writes*
+   > `{project}/yaml/*.yaml` and `{project}/*.slurm`. Running it does not
+   > create, update, or "generate" a config file. Keep the config under
+   > version control: it is the reproducible record of what was submitted.
 
    **Option B — Edit-and-run (backward compatible):**
    Copy all three template files and edit the placeholders:
@@ -387,6 +422,11 @@ Four modes of operation (choose one):
 | **Edit-and-run** | Backward compatible — edit variables at top of file | `python input_file_generator.py` |
 
 ### 3.1 Config File Mode (Recommended)
+
+The config file is **authored by you** — the generator reads it but never
+writes or regenerates it (see [§2.1](#21-boltz-2-prediction-project)).
+Start from `templates/input_file_config.json` and replace every
+`PLACEHOLDER_` value.
 
 Create a JSON (or YAML) file with the following structure:
 
@@ -769,6 +809,9 @@ aptamer → `ligand_number = 47`.
 
 | Issue | Likely Cause | Solution |
 |-------|-------------|----------|
+| `ModuleNotFoundError: No module named 'boltz2_utils'` | `python` resolved to a different interpreter (commonly a base Anaconda install) than the one the package is installed into | `conda activate boltz`, then re-run. Confirm with `python -c "import sys; print(sys.executable)"` — it must point inside the environment. See [§1.4](#14-verify-installation) |
+| Command returns instantly with **no output and no error** (Windows) | The `.py` file was invoked by path without the interpreter, so nothing executed | Prefix with `python`: `python {project}/input_file_generator.py --config ...` |
+| YAML files appear under `PLACEHOLDER_PROJECT/` | Config still contains template `PLACEHOLDER_` values | Fill in `project`, `sequences`, and `ligands` in the config ([§3.1](#31-config-file-mode-recommended)) |
 | No YAML files generated | Python error in the script | Run `python {project}/input_file_generator.py` and read the traceback |
 | No SLURM files generated | YAML step did not complete | Fix YAML generation first; SLURM scripts depend on YAML output |
 | PyMOL: `command not found` | `pymol-open-source` not installed | `conda install -c conda-forge pymol-open-source` |
