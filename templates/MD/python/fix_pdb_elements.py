@@ -12,6 +12,8 @@ Usage:
 If --output is omitted, the file is edited in-place.
 """
 
+from __future__ import annotations
+
 import sys
 import os
 

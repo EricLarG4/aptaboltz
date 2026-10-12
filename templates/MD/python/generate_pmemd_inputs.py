@@ -20,6 +20,8 @@ Existing files in ``pmemd/in/`` are moved to ``pmemd/in/archive/`` before
 generation.  See ``--help`` for all options.
 """
 
+from __future__ import annotations
+
 import argparse
 import math
 import pathlib
