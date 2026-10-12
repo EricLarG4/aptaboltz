@@ -36,6 +36,35 @@ Installing the package provides two commands, callable from any directory
 
 Both accept the same flags as the copied template scripts.
 
+> **The *script* is location-independent; the `--project` value is not.**
+> Both commands resolve `project` relative to the **current working
+> directory** — not the script's location, not the repo root. Run them from
+> the directory that contains your project folder:
+>
+> ```bash
+> cd <repo root>
+> boltz-generate-input --config my_project/input_file_config.json
+> boltz-process-output  --config my_project/output_file_config.json
+> ```
+>
+> Run from inside `my_project/` and the generator writes to
+> `my_project/my_project/yaml/`, while post-processing prints
+> `Experiment does not exist: ... | skipping` for every experiment and
+> exits 0 — a silent no-op that looks like success.
+
+## Working directory
+
+This applies to every entry point in this package, including the copied
+templates:
+
+| Function | Resolves as | On wrong cwd |
+|----------|-------------|--------------|
+| `generate_boltz2_yamls` via `boltz-generate-input` | `{project}/yaml/`, `{project}/msa/` | nested `my_project/my_project/` |
+| `process_single_experiment` via `boltz-process-output` | `{project}/{experiment_name}/` | prints `Experiment does not exist ... \| skipping`, returns silently, exit code 0 |
+
+Always `cd` to the directory that *contains* the project folder before
+invoking anything in this package.
+
 ## Usage examples
 
 Most projects should not call these functions directly — copy

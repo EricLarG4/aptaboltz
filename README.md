@@ -538,6 +538,18 @@ python my_project/input_file_generator.py
 | `{project}/yaml/*.yaml` | Boltz-2 input files (one per seq × ligand × variant) |
 | `{project}/*.slurm` | SLURM submission scripts (one per YAML file) |
 
+> **Paths are relative to your current working directory.**  `project` is not
+> resolved against the script's location or the repository root.  Run from the
+> directory that *contains* the project folder:
+>
+> ```bash
+> cd <repo root>
+> python my_project/input_file_generator.py --config my_project/input_file_config.json
+> ```
+>
+> Launching from inside `my_project/` writes to `my_project/my_project/yaml/`.
+> See [§6.4](#64-troubleshooting--boltz-2-prediction-pipeline).
+
 ---
 
 ## 4. Running Boltz-2 on a Cluster
@@ -613,6 +625,21 @@ Four modes of operation (choose one):
 **Config file template:** `templates/output_file_config.json` → copy to `{project}/`.
 
 **Inputs required:** Boltz-2 prediction output directories (see §4.2).
+
+> **Paths are relative to your current working directory.**  Each experiment is
+> looked up at `{project}/{model}_{ligand}{suffix}/`, so run from the directory
+> that *contains* the project folder:
+>
+> ```bash
+> cd <repo root>
+> python my_project/output_file_processing.py --config my_project/output_file_config.json
+> ```
+>
+> Launching from inside `my_project/` searches `my_project/my_project/<exp>/`.
+> This failure is **silent**: each experiment prints
+> `Experiment does not exist: ... | skipping` and the script still exits 0, so
+> it looks like a successful run that produced nothing.  Always check that the
+> expected `.pse`/`.csv` files actually appeared.  Same rule as [§3.4](#34-generated-files).
 
 ### 5.1 CLI Flags Mode
 
@@ -809,6 +836,8 @@ aptamer → `ligand_number = 47`.
 
 | Issue | Likely Cause | Solution |
 |-------|-------------|----------|
+| `Experiment does not exist: <path> \| skipping` and **no output files appear**, yet exit code is 0 | Launched from the wrong directory — `project` is resolved against the cwd, not the script or repo root | `cd` to the directory that contains the project folder and re-run. This skip is silent by design, so verify the `.pse`/`.csv` files were actually written ([§3.4](#34-generated-files), [§5](#5-post-processing-python-pymol--rdkit)) |
+| Files land in `my_project/my_project/` | Same cause as above, for the YAML/SLURM generator | `cd` to the parent directory and re-run ([§3.4](#34-generated-files)) |
 | `ModuleNotFoundError: No module named 'boltz2_utils'` | `python` resolved to a different interpreter (commonly a base Anaconda install) than the one the package is installed into | `conda activate boltz`, then re-run. Confirm with `python -c "import sys; print(sys.executable)"` — it must point inside the environment. See [§1.4](#14-verify-installation) |
 | Command returns instantly with **no output and no error** (Windows) | The `.py` file was invoked by path without the interpreter, so nothing executed | Prefix with `python`: `python {project}/input_file_generator.py --config ...` |
 | YAML files appear under `PLACEHOLDER_PROJECT/` | Config still contains template `PLACEHOLDER_` values | Fill in `project`, `sequences`, and `ligands` in the config ([§3.1](#31-config-file-mode-recommended)) |
@@ -894,7 +923,7 @@ simulations that complement the Boltz-2 structure predictions.
                             ┌──────────────────────────────────────────┐
                              │  model_prep.py              (PyMOL)      │
                              │  Boltz-2 prediction CIFs → MD-ready PDB  │
-                             │  →  pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/   │
+                             │  →  pdb_for_md/<PREFIX>_<OUTPUT_LGD><SUFFIX>/   │
                              │      input_model_{i}.pdb                   │
                             └──────────────────────────────────────────┘
                                             │
@@ -902,7 +931,7 @@ simulations that complement the Boltz-2 structure predictions.
                             ┌──────────────────────────────────────────┐
                             │  leap.sh                   (WSL/Linux)   │
                             │  tLEAP solvation + ionisation            │
-                            │  →  leap/<PREFIX>_<LIGAND>_constrained/   │
+                            │  →  leap/<PREFIX>_<LIGAND><SUFFIX>/   │
                             │      cplx_{i}.prmtop / .rst7 / .pdb      │
                             └──────────────────────────────────────────┘
                                             │
@@ -911,7 +940,12 @@ simulations that complement the Boltz-2 structure predictions.
 
 *The initial optimised geometry can come from any QM package (ORCA,
 Gaussian, etc.) or from public databases.  Non-optimised structures
-may be used but RESP2 charges will be less reliable.
+may be used but RESP2 charges will be less reliable.*
+
+In the diagram, `<SUFFIX>` is `_constrained` by default; it is empty when
+`model_prep.py` is run with `--unconstrained`, and `leap.sh` must then be
+given `-u` to match ([§8.7](#87-step-4--model-preparation-for-md),
+[§8.8](#88-step-5--system-solvation--ionisation)).
 ```
 
 ### 8.2 Platform Notes
@@ -1141,13 +1175,19 @@ Auto-detects the latest Boltz-2 job directory if `--job` is omitted.
   (not required when `--lgd free`)
 
 **Outputs:**
-- `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/input_model_{i}.pdb`
-- `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/README.txt`
+- `pdb_for_md/<PREFIX>_<OUTPUT_LGD><SUFFIX>/input_model_{i}.pdb`
+- `pdb_for_md/<PREFIX>_<OUTPUT_LGD><SUFFIX>/README.txt`
+
+> **`<SUFFIX>`** is `_constrained` by default. Passing `--unconstrained`
+> **drops the suffix entirely**, giving
+> `pdb_for_md/<PREFIX>_<OUTPUT_LGD>/` — not `_unconstrained`.  The same
+> suffix must be passed to `leap.sh` as `-u` in [§8.8](#88-step-5--system-solvation--ionisation).
 
 **Edits required in template:** Sequence name (`--seq`), ligand name
 (`--lgd`), reference PDB name (`--lgd-file`, omit when using `--lgd free`),
 optionally `--output-lgd` for a different output residue name,
 `--use-pair-fit` for SMILES-based ligands with diverging atom names,
+`--unconstrained` to drop the `_constrained` suffix,
 model range, and the PyMOL modification block (marked with `EDIT THIS BLOCK`).
 
 ### 8.8 Step 5 — System Solvation & Ionisation
@@ -1157,7 +1197,7 @@ model range, and the PyMOL modification block (marked with `EDIT THIS BLOCK`).
 Creates a single tLEAP input script that:
 - Loads force fields (GAFF2, DNA.OL21, OPC water)
 - Loads the ligand prepin and frcmod (skipped with `-l free`)
-- Loads each PDB model from `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/`
+- Loads each PDB model from `pdb_for_md/<PREFIX>_<OUTPUT_LGD><SUFFIX>/`
 - Solvates in an OPC water box (14.0 Å buffer)
 - Adds Na⁺/Mg²⁺/Cl⁻ ions with automatic Cl⁻ distribution (MgCl₂ + NaCl)
 
@@ -1165,24 +1205,49 @@ Runs tLEAP on the combined input, then converts each rst7 to PDB with ambpdb.
 
 **Usage:**
 ```bash
-./leap.sh -p <prefix> -l <ligand> -s <start> -e <end> -n <na> -m <mg> -c <cl>
+./leap.sh -p <prefix> -l <ligand> -s <start> -e <end> -n <na> -m <mg> -c <cl> [-u]
 ```
+
+| Arg | Description |
+|-----|-------------|
+| `-p` | Project/sequence prefix (default: `PLACEHOLDER_PREFIX`) |
+| `-l` | Ligand name (default: `PLACEHOLDER_LIGAND`); use `-l free` for no-ligand mode |
+| `-s` | Starting model index, inclusive (default: 0) |
+| `-e` | Ending model index, inclusive (default: 24) |
+| `-n` | Number of Na+ ions to add (default: 65) |
+| `-m` | Number of Mg2+ ions to add (default: 1); **`-m 0` omits the MgCl2 line entirely** |
+| `-c` | Total number of Cl- ions (default: 22), auto-split between MgCl2 and NaCl |
+| `-u` | Unconstrained: drop the `_constrained` suffix from `pdb_for_md/` and `leap/` directory names |
+
+> **`-u` is required whenever `model_prep.py` was run with `--unconstrained`.**
+> The two must agree: `-u` makes `leap.sh` read
+> `pdb_for_md/<PREFIX>_<LIGAND>/`, whereas the default makes it look for
+> `pdb_for_md/<PREFIX>_<LIGAND>_constrained/`.  Without the matching flag,
+> tLEAP reports the PDBs as missing.
+
+> **`-m 0` selects a NaCl-only system.** Amber's `addIonsRand` rejects a zero
+> count on the first ion when a second ion is also named, so the script omits
+> the `MG ... Cl-` line when `-m` is 0 rather than emitting a zero-count call.
+> With `-m 0`, the whole `-c` value is applied as NaCl.
 
 **Examples:**
 ```bash
-# CSS1, ligand hcy, models 0-24, 65 Na⁺, 1 Mg²⁺, 22 Cl⁻
+# CSS1, ligand hcy, models 0-24, 65 Na+, 1 Mg2+, 22 Cl-
 ./leap.sh -p CSS1 -l hcy -s 0 -e 24 -n 65 -m 1 -c 22
 
 # No-ligand mode (no prepin/frcmod needed)
 ./leap.sh -p CSS1 -l free -s 0 -e 24 -n 65 -m 1 -c 22
+
+# NaCl only, no Mg2+, unconstrained models
+./leap.sh -p my_project -l hcy -s 0 -e 24 -n 46 -c 12 -m 0 -u
 ```
 
 **Inputs required:**
-- `ff/<ligand>_resp.prepin` — from Step 3 (not required with `-l free`)
-- `ff/<ligand>_resp.frcmod` — from Step 3 (not required with `-l free`)
-- `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/input_model_{i}.pdb` — from Step 4
+- `ff/<ligand>_resp.prepin` - from Step 3 (not required with `-l free`)
+- `ff/<ligand>_resp.frcmod` - from Step 3 (not required with `-l free`)
+- `pdb_for_md/<PREFIX>_<OUTPUT_LGD><SUFFIX>/input_model_{i}.pdb` - from Step 4
 
-**Deliverables** (in `leap/<PREFIX>_<LIGAND>_constrained/`):
+**Deliverables** (in `leap/<PREFIX>_<LIGAND><SUFFIX>/`):
 - `tleap.in` — Combined tLEAP input script
 - `cplx_{i}.prmtop` — Amber topology (one per model)
 - `cplx_{i}.rst7` — Amber restart/coords (one per model)
@@ -1228,8 +1293,8 @@ resulting `n_Na` / `n_Mg` / `n_Cl` counts in
 | 1 | `orca_steps_wsl.sh` | `QM/<mol>.xyz` | `SP_gas.molden`, `SP_solv.molden` |
 | 2 | `multiwfn_steps_*.ps1/.sh` | `SP_gas.molden`, `SP_solv.molden` | `QM/<mol>_opt.chg` |
 | 3 | `ligand_prep.sh` | `QM/<mol>.mol2` (or `.xyz`), `QM/<mol>_opt.chg` | `ff/<mol>_resp.*` (prepin, frcmod, pdb) |
-| 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` (not required when `--lgd free`) | `pdb_for_md/<PREFIX>_<OUTPUT_LGD>_constrained/input_model_{i}.pdb` |
-| 5 | `leap.sh` | `ff/<lig>_resp.prepin` (not required with `-l free`), `ff/<lig>_resp.frcmod` (not required with `-l free`), PDB models from Step 4 | `leap/<PREFIX>_<LIGAND>_constrained/cplx_{i}.prmtop/.rst7/.pdb` |
+| 4 | `model_prep.py` | `../<SEQ>_<LGD><suffix>/<JOB>/boltz_results_input/predictions/input/*.cif`, `ff/<mol>_resp.pdb` (not required when `--lgd free`) | `pdb_for_md/<PREFIX>_<OUTPUT_LGD><SUFFIX>/input_model_{i}.pdb` |
+| 5 | `leap.sh` | `ff/<lig>_resp.prepin` (not required with `-l free`), `ff/<lig>_resp.frcmod` (not required with `-l free`), PDB models from Step 4 | `leap/<PREFIX>_<LIGAND><SUFFIX>/cplx_{i}.prmtop/.rst7/.pdb` |
 
 ### 8.11 Dependencies Table
 
