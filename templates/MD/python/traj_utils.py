@@ -39,7 +39,7 @@ def find_trajectory_pairs(job_dir):
     ----------
     job_dir : str
         Path to the job directory (e.g.
-        ``CSS/MD/pmemd/out/CSS1_free_constrained/J1129505``).
+        ``my_project/MD/pmemd/out/Seq1_free_constrained/J1234567``).
 
     Returns
     -------
@@ -99,9 +99,9 @@ def generate_trajectory_viewer(project, experiment, job, verbose=True, base_url=
     Parameters
     ----------
     project : str
-        Project directory name (e.g. ``"CSS"``, ``"PQ4"``).
+        Project directory name (e.g. ``"my_project"``).
     experiment : str
-        Experiment name (e.g. ``"CSS1_free_constrained"``).
+        Experiment name (e.g. ``"Seq1_free_constrained"``).
     job : str
         Job identifier (e.g. ``"J1129505"``).
     verbose : bool, default True
