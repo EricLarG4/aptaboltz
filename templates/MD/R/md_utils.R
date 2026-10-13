@@ -153,7 +153,7 @@
 #   to follow the pattern:
 #     <project>/<category>/<method>/out/<experiment>_<replicate>/<model>/<file>.dat
 #   where:
-#     - path component [5]  = experiment identifier (e.g. "CSS1_rep1")
+#     - path component [5]  = experiment identifier (e.g. "Seq1_rep1")
 #     - path component [7]  = model name (e.g. "wildtype")
 #   The experiment name is split on '_' and joined with a middle dot (·).
 #
@@ -266,7 +266,7 @@ read_rmsd <- function(
   time_step = NA
 ) {
   # Extract experiment name from the 5th path component
-  # e.g. "CSS/MD/pmemd/out/CSS1_rep1/..." → "CSS1_rep1" → "CSS1·rep1"
+  # e.g. "my_project/MD/pmemd/out/Seq1_rep1/..." → "Seq1_rep1" → "Seq1·rep1"
   experiment <- strsplit(file, split = "[/\\\\]")[[1]][5]
   sequence <- strsplit(experiment, '_')[[1]][1]
   ligand <- strsplit(experiment, '_')[[1]][2]
@@ -277,7 +277,7 @@ read_rmsd <- function(
   )
 
   # Extract model name from the 7th path component
-  # e.g. ".../CSS1_rep1/wildtype/2drmsd.dat" → "wildtype"
+  # e.g. ".../Seq1_rep1/wildtype/2drmsd.dat" → "wildtype"
   model <- strsplit(file, split = "[/\\\\]")[[1]][7]
 
   cat("Reading", model, "for experiment", experiment, "\n")
@@ -806,7 +806,7 @@ read_contacts_long <- function(file, ligand_residue = NULL,
 # ─── pdb_hbond_contacts ─────────────────────────────────────────────────
 # Detects H-bonds in a single structure (PDB file) using the same geometric
 # criteria as the cpptraj `hbond` analysis used for the trajectories
-# (see CSS/MD/hbond_analysis.cpptraj and PQ4/MD/hbond_analysis.cpptraj):
+# (see {project}/MD/hbond_analysis.cpptraj):
 #   - donor-acceptor distance <= dist_cut (default 3.2 A)
 #   - D-H-A angle >= angle_cut (default 135 degrees)
 # Hydrogen-to-donor bonding is assigned to the nearest heavy atom within
@@ -1156,7 +1156,7 @@ contacts_summary <- function(ref, avg = NULL) {
 # pi-stacking interactions between the aromatic rings of the ligand (only
 # piperaquine, PQ, has aromatic rings in this project) and the aromatic base
 # rings of the DNA. The trajectory data are precomputed externally by
-# PQ4/MD/python/pi_stacking.py (MDAnalysis + RDKit; see the re-run note in
+# {project}/MD/python/pi_stacking.py (MDAnalysis + RDKit; see the re-run note in
 # the report), which writes one CSV per model with per-frame geometry for
 # every ligand-ring x base-ring pair that comes within a buffer distance.
 # The workflow is:
@@ -1184,7 +1184,7 @@ contacts_summary <- function(ref, avg = NULL) {
 
 
 # ─── read_pi_stacking ───────────────────────────────────────────────────
-# Reads an external pi-stacking CSV (written by PQ4/MD/python/pi_stacking.py)
+# Reads an external pi-stacking CSV (written by {project}/MD/python/pi_stacking.py)
 # into a long-format data.table, one row per pair per analysed frame, with
 # absent frames zero-padded so `present` is defined for every frame.
 #
@@ -1250,7 +1250,7 @@ read_pi_stacking <- function(file, stride = 5, simulation_time = sim_time) {
 # ─── pdb_pi_stacking ────────────────────────────────────────────────────
 # Evaluates the pi-stacking set of a single structure (PDB file, e.g. the
 # final minimised structure) in situ, using the same geometric criteria as
-# the Python script (PQ4/MD/python/pi_stacking.py):
+# the Python script ({project}/MD/python/pi_stacking.py):
 #   - aromatic ligand rings from ring_defs.json (written by the script)
 #   - aromatic base rings from the standard DNA base ring atom sets
 #     (same ring_defs.json)
@@ -1259,7 +1259,7 @@ read_pi_stacking <- function(file, stride = 5, simulation_time = sim_time) {
 #
 # Args:
 #   pdb             — Path to a PDB file (e.g. *_stripped.pdb).
-#   ring_defs_file  — Path to ring_defs.json (PQ4/MD/pi_stacking/ring_defs.json).
+#   ring_defs_file  — Path to ring_defs.json ({project}/MD/pi_stacking/ring_defs.json).
 #   ligand_resname  — Ligand residue name (default: "PQ").
 #   dist_cut        — Centroid distance cutoff in A (default: 5.5).
 #   angle_cut       — Parallel interplanar angle cutoff in degrees (default: 30).
@@ -1598,7 +1598,7 @@ pi_stacking_summary <- function(ref, dt_long) {
 #   Reads all "*_minimized_constraints.csv" files under
 #   "{project}/MD/pmemd/out/" (one per experiment/job, written by
 #   process_minimized_constraint_verification in templates/MD/python/pymol_utils.py)
-#   into a single data.table. Derives 'sequence' (e.g. "CSS1") and 'condition'
+#   into a single data.table. Derives 'sequence' (e.g. "Seq1") and 'condition'
 #   (Free / HCY / PQ) labels from the experiment name and adds the job id.
 #
 # Returns:
