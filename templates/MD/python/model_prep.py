@@ -64,7 +64,7 @@ def prep_model(
     Parameters
     ----------
     seq : str
-        Sequence identifier (e.g. "CSS1").         Used in directory paths.
+        Sequence identifier (e.g. "Seq1").         Used in directory paths.
     lgd : str
         Ligand identifier for directory path construction (e.g. "Piperaquine").
         When Boltz-2 was run with a SMILES ligand, the output residue is
