@@ -122,7 +122,7 @@ def generate_boltz2_slurm_files(
       ``generate_boltz2_yamls``).
 
     The SLURM job name and staged input filename are derived from each YAML
-    stem (e.g. ``CSS1_C0R.yaml`` -> job ``CSS1_C0R``).
+    stem (e.g. ``Seq1_L01.yaml`` -> job ``Seq1_L01``).
 
     Parameters
     ----------
@@ -131,7 +131,7 @@ def generate_boltz2_slurm_files(
     cluster_path:
         Path to the project directory on the cluster, relative to
         ``$SLURM_SUBMIT_DIR`` (i.e. where you call ``sbatch`` from).
-        For example: ``"scratch/boltz/projects/CSS"``.
+        For example: ``"scratch/boltz/projects/my_project"``.
         Embedded in each script as ``SCRATCHDIR=${SLURM_SUBMIT_DIR}/{cluster_path}``.
     output_dir:
         Where to write the ``.slurm`` files locally.  Defaults to the project
