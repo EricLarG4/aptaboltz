@@ -151,10 +151,11 @@
 # FILE STRUCTURE ASSUMPTIONS
 #   The file path passed to read_rmsd() and read_atomicfluct() is expected
 #   to follow the pattern:
-#     <project>/<category>/<method>/out/<experiment>_<replicate>/<model>/<file>.dat
+#     <project>/MD/pmemd/out/<experiment>/<job>/<model>/<file>.dat
 #   where:
-#     - path component [5]  = experiment identifier (e.g. "Seq1_rep1")
-#     - path component [7]  = model name (e.g. "wildtype")
+#     - path component [5]  = experiment identifier (e.g. "Seq1_L01")
+#     - path component [6]  = job directory (e.g. "J1234567")
+#     - path component [7]  = model / task name (e.g. "task_3")
 #   The experiment name is split on '_' and joined with a middle dot (·).
 #
 # NOTES
@@ -266,7 +267,7 @@ read_rmsd <- function(
   time_step = NA
 ) {
   # Extract experiment name from the 5th path component
-  # e.g. "my_project/MD/pmemd/out/Seq1_rep1/..." → "Seq1_rep1" → "Seq1·rep1"
+  # e.g. "my_project/MD/pmemd/out/Seq1_L01/J1234567/..." → "Seq1·L01"
   experiment <- strsplit(file, split = "[/\\\\]")[[1]][5]
   sequence <- strsplit(experiment, '_')[[1]][1]
   ligand <- strsplit(experiment, '_')[[1]][2]
@@ -277,7 +278,7 @@ read_rmsd <- function(
   )
 
   # Extract model name from the 7th path component
-  # e.g. ".../Seq1_rep1/wildtype/2drmsd.dat" → "wildtype"
+  # e.g. ".../Seq1_L01/J1234567/task_3/2drmsd.dat" → "task_3"
   model <- strsplit(file, split = "[/\\\\]")[[1]][7]
 
   cat("Reading", model, "for experiment", experiment, "\n")
