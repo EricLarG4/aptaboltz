@@ -1749,11 +1749,22 @@ Both `read_rmsd()` and `read_atomicfluct()` extract experiment and model
 metadata from the file path, which must follow the pattern:
 
 ```
-<project>/<category>/<method>/out/<experiment>_<replicate>/<model>/<file>.dat
+<project>/MD/pmemd/out/<experiment>/<job>/<model>/<file>.dat
 ```
 
-- Path component `[5]` → experiment (e.g. `Seq1_rep1` → `Seq1·rep1`)
-- Path component `[7]` → model name (e.g. `wildtype`)
+- Path component `[5]` → experiment, split on `_` into **sequence** (first
+  token) and **ligand** (second token), then rejoined with a middle dot for
+  display — e.g. `Seq1_L01` → `Seq1·L01`
+- Path component `[7]` → model / task name (e.g. `task_3`)
+
+> Component `[6]` is the job directory (`J…`).  The readers index these
+> positions **hard-coded**, so a flattened layout such as
+> `out/<experiment>/<model>/<file>.dat` will mislabel everything.  The layout
+> above is what `PrepAndMin.slurm` (§9.1) actually produces.
+>
+> Only the **first two** `_`-separated tokens are used.  An experiment name with
+> more than one underscore (e.g. `Proj_A_B`) will have everything after the
+> second token dropped from the label.
 
 #### Usage Example
 
@@ -1761,8 +1772,8 @@ metadata from the file path, which must follow the pattern:
 source("md_utils.R")
 
 # Read all RMSD and atomic fluctuation files
-rmsd_files  <- list.files("pmemd/out", pattern = "2drmsd\\.dat$", full.names = TRUE, recursive = TRUE)
-fluct_files <- list.files("pmemd/out", pattern = "atomicfluct\\.dat$", full.names = TRUE, recursive = TRUE)
+rmsd_files  <- list.files("pmemd/out", pattern = "2drmsd.*\\.dat$", full.names = TRUE, recursive = TRUE)
+fluct_files <- list.files("pmemd/out", pattern = "atomicfluct.*\\.dat$", full.names = TRUE, recursive = TRUE)
 
 rmsd_dt  <- lapply(rmsd_files, read_rmsd) |> rbindlist()
 fluct_dt <- lapply(fluct_files, read_atomicfluct) |> rbindlist()
