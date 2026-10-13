@@ -59,8 +59,8 @@ BASE_RINGS = {
     "DT": [["N1", "C2", "N3", "C4", "C5", "C6"]],
 }
 PROJECT = "PLACEHOLDER_PROJECT"        # project directory name (e.g. "my_project")
-EXPERIMENT = "PLACEHOLDER_EXPERIMENT"  # e.g. "PQ4_PQ_constrained"
-LIGAND_RESNAME = "PLACEHOLDER_LIGAND"  # ligand residue name in the topology/PDB (e.g. "PQ")
+EXPERIMENT = "PLACEHOLDER_EXPERIMENT"  # e.g. "my_seq_L01_constrained"
+LIGAND_RESNAME = "PLACEHOLDER_LIGAND"  # ligand residue name in the topology/PDB (e.g. "L01")
 LIGAND_BASE = f"{PROJECT}/MD/pmemd/out"
 OUT_DIR = f"{PROJECT}/MD/pi_stacking"
 BUFFER = 6.5  # only store ring pairs within this centroid distance (A)
