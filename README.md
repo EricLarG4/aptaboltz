@@ -79,14 +79,12 @@ templates/                  Project-specific files with PLACEHOLDER_ values
     slurm/
       PrepAndMin.slurm            Amber MD prep + minimisation SLURM array template (§9.1)
 
-CSS/                        Real usage example (corticosteron-specific aptamers)
-  input_file_generator.py     CSS-specific sequences: CSS1, CSS2, CSS3
-  output_file_processing.py   CSS-specific ligands: C0R, HCY, 11DC
-  process.R
-  MD/                         Full MD pipeline reference
-    python/
-      pymol_utils.py            PyMOL utilities (copy of template, §9.11)
-      final_min_pymol.py        Final-min session generator (§9.11)
+Per-project working directories (one folder per aptamer study, each with its
+own input_file_generator.py, output_file_config.json, process.R, results and
+MD/ pipeline) are **not tracked in this repository** - they are listed in
+`.gitignore`.  Only the shared utilities, the templates, and this README are
+published; create your own project directory as described in
+[2. Setting Up a New Project](#2-setting-up-a-new-project).
 ```
 
 > **Note on molecule types:** This pipeline works natively with **DNA** and
@@ -163,6 +161,19 @@ python my_project/output_file_processing.py --project my_project \
 
 For the MD force-field parameterisation (§8) and Amber MD preparation (§9)
 workflows, follow the dedicated setup in [§2.2](#22-md-parameterisation-project).
+
+> **These scripts fail quietly.** Several of them report success and exit 0 even
+> when a step did nothing:
+>
+> | Step | Looks successful | Actually means |
+> |------|-----------------|----------------|
+> | `ligand_prep.sh` (§8.6) | `• antechamber/<mol>_resp.ac` then **Done!** | `awk` may have failed on a missing charge file, leaving a **0-byte** `.ac` that still produces a `prepin`/`frcmod` — **without RESP2 charges** |
+> | `output_file_processing.py` (§5) | `Experiment does not exist: … \| skipping` | Every experiment was skipped; **no files written** |
+> | `model_prep.py` (§8.7) | prints each model header | May have aborted on the ligand fit; check for the `Saved modified model` line |
+>
+> Always confirm the expected files actually exist before moving on — see the
+> troubleshooting tables in [§6.4](#64-troubleshooting--boltz-2-prediction-pipeline)
+> and [§8.12](#812-troubleshooting).
 
 ---
 
@@ -247,7 +258,8 @@ workflows, follow the dedicated setup in [§2.2](#22-md-parameterisation-project
 
 | Component | Platform | Installation method |
 |-----------|----------|-------------------|
-| Python (≥ 3.10) | Any | conda (via `environment.yml`) or system Python |
+| Python (≥ 3.10) | Any | conda (via `environment.yml`) or system Python — required by `boltz2_utils` |
+| Python (≥ 3.7) | Any | separately, for the `templates/MD/python/` scripts, which usually run on the cluster (see [§8.11](#811-dependencies-table)) |
 | boltz2_utils | Any (Python) | `pip install -e ./boltz2_utils` or included in conda env |
 | PyMOL | Any | `conda install -c conda-forge pymol-open-source` |
 | RDKit | Any | Included in `environment.yml` via conda-forge |
@@ -617,7 +629,7 @@ Four modes of operation (choose one):
 
 | Mode | When to use | Command |
 |------|-------------|---------|
-| **CLI flags** | Quick runs, scripting | `python output_file_processing.py --project CSS --model CSS1 --ligand-dict '{...}' --name-map '{...}'` |
+| **CLI flags** | Quick runs, scripting | `python output_file_processing.py --project my_project --model Seq1 --ligand-dict '{...}' --name-map '{...}'` |
 | **Config file** | Reusable config for complex projects | `python output_file_processing.py --config config.json` |
 | **Console script** | If boltz2_utils is installed via pip | `boltz-process-output --config config.json` |
 | **Edit-and-run** | Backward compatible — edit variables at top of file | `python output_file_processing.py` |
@@ -766,8 +778,8 @@ The `job_dirs` parameter of `process_single_experiment()` accepts:
 |-------|-----------|
 | `None` | Process **all** J-directories |
 | `"last"` | Process only the highest-numbered directory |
-| `"J1121077"` | Process only that specific directory |
-| `["J1121077", "J1123593"]` | Process only the listed directories |
+| `"J1234567"` | Process only that specific directory |
+| `["J1234567", "J1234567"]` | Process only the listed directories |
 
 ---
 
@@ -826,7 +838,7 @@ aptamer → `ligand_number = 47`.
 |----------|-------|--------|
 | `process_confidence(project, keep = NULL)` | All `*_confidence.csv` files | `data.table`, one row per model; `keep` filters to specific `model/experiment` pairs |
 | `table_confidence(confidence_dt, project, outfile = NULL)` | The returned `data.table` | Interactive DT table; HTML file `confidence_table.html` (override the output path via `outfile`) |
-| `process_constraints(project, keep = NULL)` | All `*_constraints.csv` files (excluding `*_minimized_constraints.csv`) | `data.table`, one row per model; derives `sequence` and `condition` (Free/HCY/PQ) labels from the model names |
+| `process_constraints(project, keep = NULL)` | All `*_constraints.csv` files (excluding `*_minimized_constraints.csv`) | `data.table`, one row per model; derives `sequence` and `condition` (e.g. Free / Bound) labels from the model names |
 | `table_constraints(constraint_dt, seq, project, page_length, element_id, outfile)` | A `data.table` from `process_constraints()` or `read_minimized_constraints()` | Interactive DT table of constraint verification for one sequence (Condition, Model, Restraints, Satisfied, Verified, Non-verified restraints, Worst min. distance); `element_id`/`outfile` allow embedding in a report |
 | `process_pxe(type=...)` | All `*_pae.csv` or `*_pde.csv` files | Named list of `data.table`s (one per experiment) |
 | `plot_pxe(pxe, type, ..., width, height, dpi, show_title, show_subtitle)` | One element from `process_pxe()` | Faceted PNG per region (DNA / Ligand); optional size, DPI, and title control |
@@ -846,6 +858,8 @@ aptamer → `ligand_number = 47`.
 | PyMOL: `command not found` | `pymol-open-source` not installed | `conda install -c conda-forge pymol-open-source` |
 | RDKit: chirality grid empty | Ligand SDF extraction failed | Verify `LGD_DICT` / `NAME_MAP` mapping matches the YAML ligand names |
 | R: `object 'process_confidence' not found` | `processor.R` not sourced | Check path in `source('boltz_R_utils/processor.R')` |
+| R: `Error in name2int(): You specified the columns: complex_pae` | **Boltz does not emit the same metrics in every version.** Newer releases omit `complex_pae` / `complex_ipae` from `*_confidence.json`, so `table_confidence()` finds a palette entry with no matching column | `table_confidence()` now skips palette entries with no matching column.  If you hit this, update `boltz_R_utils/processor.R`.  Note that confidence CSV column sets legitimately differ **between projects** — do not assume a fixed column list |
+| R: `lexical error: invalid char in json text` when reading `*_confidence.json` | The JSON contains Python `None` rather than `null`, which R's JSON parser rejects | Affects older runs only.  Re-run `output_file_processing.py` for that project to regenerate the CSV, then read the CSV rather than the JSON |
 | R: conda environment not active | `install_packages.R` not run first | Run `source('boltz_R_utils/install_packages.R')` once |
 | R: CSV files not found | Python post-processing not run | Run `output_file_processing.py` first |
 | `_constrained` jobs missing | `additional_pairs` resolves to empty | Check contact-constraint format in Appendix 11 |
@@ -974,7 +988,7 @@ choice of QM package and workflow is project-specific.
 (Both `.xyz` and `.mol2` are accepted — see Step 3 below for the fallback.)
 
 > **Naming convention:** Throughout §8, `<mol>` is the ligand's base name
-> (e.g. `hcy`).  The optimised structure is `QM/<mol>.xyz` / `QM/<mol>.mol2`,
+> (e.g. `L01`).  The optimised structure is `QM/<mol>.xyz` / `QM/<mol>.mol2`,
 > and the RESP2 charge file is `QM/<mol>_opt.chg` — the `_opt` suffix marks
 > charges derived from the *optimised* geometry.  All steps below must use
 > the same base name so the files line up.
@@ -1162,7 +1176,7 @@ cd my_project/MD
 python python/model_prep.py --seq <PREFIX> --lgd free [options]
 ```
 
-> **Important:** Run this script from the `MD/` directory (e.g. `CSS/MD/`), not
+> **Important:** Run this script from the `MD/` directory (e.g. `my_project/MD/`), not
 > from `MD/python/`.  The script uses relative paths (`../` for Boltz-2
 > prediction output and `ff/` for ligand parameter files) that resolve
 > correctly only from `MD/`.
@@ -1232,14 +1246,14 @@ Runs tLEAP on the combined input, then converts each rst7 to PDB with ambpdb.
 
 **Examples:**
 ```bash
-# CSS1, ligand hcy, models 0-24, 65 Na+, 1 Mg2+, 22 Cl-
-./leap.sh -p CSS1 -l hcy -s 0 -e 24 -n 65 -m 1 -c 22
+# Seq1, ligand L01, models 0-24, 65 Na+, 1 Mg2+, 22 Cl-
+./leap.sh -p Seq1 -l L01 -s 0 -e 24 -n 65 -m 1 -c 22
 
 # No-ligand mode (no prepin/frcmod needed)
-./leap.sh -p CSS1 -l free -s 0 -e 24 -n 65 -m 1 -c 22
+./leap.sh -p Seq1 -l free -s 0 -e 24 -n 65 -m 1 -c 22
 
 # NaCl only, no Mg2+, unconstrained models
-./leap.sh -p my_project -l hcy -s 0 -e 24 -n 46 -c 12 -m 0 -u
+./leap.sh -p my_project -l L01 -s 0 -e 24 -n 46 -c 12 -m 0 -u
 ```
 
 **Inputs required:**
@@ -1307,6 +1321,17 @@ resulting `n_Na` / `n_Mg` / `n_Cl` counts in
 | `model_prep.py` | Any (PyMOL) | PyMOL (pymol-open-source preferred) |
 | `leap.sh` | WSL/Linux | AmberTools (tleap, ambpdb) |
 | `ions.R` | Any (R) | data.table, DT |
+| `pymol_utils.py`, `traj_utils.py` | Any (PyMOL) | Python ≥ 3.7, PyMOL; `traj_utils.py` also needs `molviewspec` |
+| `pi_stacking.py` | Any | Python ≥ 3.7, MDAnalysis, RDKit |
+| `generate_pmemd_inputs.py`, `generate_md_slurm.py` | Any | Python ≥ 3.7 (standard library only) |
+
+> **Python version note.**  The MD scripts run on your *cluster*, not in the
+> `boltz` conda environment, and many clusters still ship an older default
+> `python` (3.6–3.9).  All `templates/MD/python/*.py` are written to run on
+> **Python 3.7 or newer**; `X | None` type annotations are deferred via
+> `from __future__ import annotations` so they are safe on older interpreters.
+> If a script fails with `TypeError: unsupported operand type(s) for |`, your
+> copy predates that fix — update it, or invoke it with a newer interpreter.
 
 ### 8.12 Troubleshooting
 
@@ -1317,14 +1342,17 @@ resulting `n_Na` / `n_Mg` / `n_Cl` counts in
 | Multiwfn fails (Linux) | Missing input or wrong path | Ensure `$Multiwfn` path is correct and the molden files exist |
 | `mol2` file not found in `QM/` | Wrong filename or directory | Name the file `<mol>.mol2` and place in `QM/`; or provide `<mol>.xyz` as fallback |
 | `.xyz` → `.mol2` conversion fails | Missing converter | Install `antechamber` (AmberTools) or `obabel` (OpenBabel) |
-| RESP2 charges look wrong | Atom ordering mismatch | Verify identical atom ordering between `.mol2` and `.chg` files |
+| `RESP2 charges look wrong` | Atom ordering mismatch | Verify identical atom ordering between `.mol2` and `.chg` files |
+| `awk: fatal: cannot open file` `QM/<mol>_opt.chg` — yet `• antechamber/<mol>_resp.ac` is printed and the script ends with **Done!** | **The charge file is missing or its case does not match `MOL`.**  Linux is case-sensitive: `L01_opt.chg` ≠ `l01_opt.chg` | Name the file exactly `QM/<MOL>_opt.chg`, matching `MOL` at the top of `ligand_prep.sh`.  Check with `ls -l QM/*_opt.chg` **before** running — see the warning below |
+| `antechamber/<mol>_resp.ac` is 0 bytes, or `prepin`/`frcmod` look empty | **Silent corruption after the failure above.**  The shell truncates `> antechamber/<mol>_resp.ac` *before* awk runs, so the awk failure leaves an empty file that flows on into `prepgen` and `parmchk2` — the RESP2 substitution never happened and your system carries plain BCC charges | `rm -rf ff antechamber`, fix the charge-file name, re-run.  Confirm with `awk '/^ATOM/{s+=$NF} END{print s}' antechamber/<mol>_resp.ac` → must equal the net charge (0 for `NC=0`) |
 | PyMOL: `prep_model()` fails | Missing job directory | Check that the Boltz-2 prediction CIFs are in the expected path; use `--job` explicitly |
 | PyMOL: modifications don't match system | Default DNA-specific operations | Edit the "EDIT THIS BLOCK" section in `model_prep.py` for your system (RNA/protein/other) |
 | PyMOL: `align` fails with `invalid selections` for SMILES ligands | Atom names differ between reference and prediction | Pass `--use-pair-fit` to use `cmd.pair_fit` (element-based pairing) instead |
 | PyMOL: output PDBs have an extra `LIG1` residue on chain B in models ≥ 1 (model 0 is correct) | The merged `"seq"` object from the previous model persists in PyMOL, causing `count_atoms("resn <lgd>")` to return > 0 — the LIG1 auto-detect is skipped and the predicted ligand is never removed | Update to the latest `model_prep.py` (the fix clears `"seq"` after each model and scopes the residue check to the just-loaded CIF object) |
-| `leap.sh`: `CSS1_` directory not found | Wrong prefix | Use `-p` to specify your project prefix (e.g. `-p MYPROJ`) |
+| `leap.sh`: `Seq1_` directory not found | Wrong prefix | Use `-p` to specify your project prefix (e.g. `-p MYPROJ`) |
 | tLEAP reports missing parameters | frcmod has ATTN warnings | Review `ff/<ligand>_resp.frcmod` and adjust parmchk2 output |
 | OPC water model unrecognised | AmberTools version | Requires AmberTools ≥ 18 for `leaprc.water.opc` |
+| `addIonsRand: '0' is not allowed as the value for the second ion` | `-m 0` with the script emitting `addIonsRand ... MG 0 Cl- 0`.  Amber rejects a zero count on the *first* ion when a second ion is also named | Current `leap.sh` omits the Mg line entirely when `-m` is 0.  If you see this, your copy predates that fix — update `leap.sh`, or omit `-m` and accept one Mg²⁺ |
 | Ion counts are wrong | Incorrect Nw or Q | Run `leap.sh` once with approximate values, extract Nw from leap.log, then use `ions.R` to recalculate |
 | Chlorine atoms show as carbon in PyMOL | Missing element symbol in PDB columns 77-78 | Re-run `fix_pdb_elements.py` on the PDB file, or re-run `ligand_prep.sh` (step 2 now auto-applies the fix) |
 
@@ -1421,21 +1449,21 @@ your project parameters, and writes a configured `.slurm` file.
 ```bash
 cd my_project/MD
 python python/generate_md_slurm.py \
-    --experiment CSS1_HCY_constrained \
+    --experiment Seq1_L01_constrained \
     --array 1,2,3,5,7 \
-    --scratchdir scratch/boltz/projects/CSS/MD
+    --scratchdir scratch/boltz/projects/my_project/MD
 ```
 
 For a **no-ligand** run, use `"free"` in the experiment name:
 
 ```bash
 python python/generate_md_slurm.py \
-    --experiment CSS1_free_constrained \
+    --experiment Seq1_free_constrained \
     --array 0-4 \
-    --scratchdir scratch/boltz/projects/CSS/MD
+    --scratchdir scratch/boltz/projects/my_project/MD
 ```
 
-**Output:**  `slurm/<experiment>_PrepAndMin.slurm` (e.g. `slurm/CSS1_HCY_constrained_PrepAndMin.slurm`)
+**Output:**  `slurm/<experiment>_PrepAndMin.slurm` (e.g. `slurm/Seq1_L01_constrained_PrepAndMin.slurm`)
 
 The output filename includes the experiment name so multiple projects can
 coexist in the same `slurm/` directory without ambiguity.
@@ -1456,7 +1484,7 @@ After generation, transfer the output `.slurm` file to the cluster together
 with the `pmemd/in/` input files, then submit:
 
 ```bash
-sbatch slurm/CSS1_HCY_constrained_PrepAndMin.slurm
+sbatch slurm/Seq1_L01_constrained_PrepAndMin.slurm
 ```
 
 ### 9.3 The 11-Step Protocol
@@ -1724,7 +1752,7 @@ metadata from the file path, which must follow the pattern:
 <project>/<category>/<method>/out/<experiment>_<replicate>/<model>/<file>.dat
 ```
 
-- Path component `[5]` → experiment (e.g. `CSS1_rep1` → `CSS1·rep1`)
+- Path component `[5]` → experiment (e.g. `Seq1_rep1` → `Seq1·rep1`)
 - Path component `[7]` → model name (e.g. `wildtype`)
 
 #### Usage Example
@@ -1807,7 +1835,7 @@ in-situ `pdb_pi_stacking()` evaluation uses the same resolution, and
 `process_minimized_constraint_verification()` (§9.11) under
 `{project}/MD/pmemd/out/`:
 
-- derives `sequence` (e.g. `CSS1`) and `condition` (`Free` / `HCY` / `PQ`)
+- derives `sequence` (e.g. `Seq1`) and `condition` (e.g. `Free` / `Bound`)
   labels from the experiment name;
 - keeps **only the most recent job per experiment** (all model rows of that
   job), so a superseded MD run does not add duplicate rows;
@@ -1864,7 +1892,7 @@ process_final_min("my_project", "Seq1_L01_constrained", "J1234567")
 process_minimized_constraint_verification("my_project", "Seq1_L01_constrained", "J1234567")
 ```
 
-Or as a standalone script (see `CSS/MD/python/final_min_pymol.py` for a
+Or as a standalone script (see `MD/python/final_min_pymol.py` for a
 complete example):
 
 ```python
@@ -1887,20 +1915,20 @@ alternative to PyMOL sessions:
 from pymol_utils import generate_minimized_viewer
 
 # Single job
-generate_minimized_viewer("CSS", "CSS1_free_constrained", "J1129505")
+generate_minimized_viewer("my_project", "Seq1_free_constrained", "J1234567")
 
 # All jobs in a project
 import os
-output_root = "CSS/MD/pmemd/out"
+output_root = "my_project/MD/pmemd/out"
 for exp in sorted(os.listdir(output_root)):
     for job in os.listdir(os.path.join(output_root, exp)):
-        generate_minimized_viewer("CSS", exp, job)
+        generate_minimized_viewer("my_project", exp, job)
 ```
 
 Or via the command line:
 
 ```bash
-python python/pymol_utils.py CSS CSS1_free_constrained J1129505
+python python/pymol_utils.py my_project Seq1_free_constrained J1234567
 ```
 
 The output is a single `.mvsj` file per job at:
