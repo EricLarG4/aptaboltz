@@ -39,7 +39,7 @@ process_confidence <- function(project, keep = NULL) {
   # columns are removed.
   #
   # If *keep* is provided (character vector of "model/experiment" strings
-  # such as "CSS1_free_constrained/J1123595"), only rows matching those
+  # such as "Seq1_free_constrained/J1123595"), only rows matching those
   # combinations are retained.
   #
   # Returns a data.table with columns ordered:
@@ -106,7 +106,7 @@ process_confidence <- function(project, keep = NULL) {
     confidence_dt[, id := .I]
   }
 
-  # 5. Derive the sequence label (e.g. "CSS1" from "CSS1_free_constrained")
+  # 5. Derive the sequence label (e.g. "Seq1" from "Seq1_free_constrained")
   confidence_dt[, sequence := sub("_.*$", "", sub("_constrained$", "", model))]
 
   # 6. Reorder columns so base identifiers come first,
@@ -294,10 +294,10 @@ process_constraints <- function(project, keep = NULL) {
   # Read all *_constraints.csv files under *project* into a single
   # data.table, adding 'model' and 'experiment' columns from the directory
   # path and deriving 'sequence' and 'condition' labels from the model name
-  # (e.g. CSS1_free_constrained -> sequence "CSS1", condition "Free").
+  # (e.g. Seq1_free_constrained -> sequence "Seq1", condition "Free").
   #
   # If *keep* is provided (character vector of "model/experiment" strings
-  # such as "CSS1_free_constrained/J1123595"), only matching rows are kept.
+  # such as "Seq1_free_constrained/J1123595"), only matching rows are kept.
   #
   # Returns a data.table ordered by sequence -> condition -> model.
   constraint_files <- list.files(
