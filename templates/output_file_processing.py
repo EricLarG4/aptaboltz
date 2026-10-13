@@ -9,16 +9,16 @@ confidence/PAE/PDE/pLDDT CSV aggregation.
 Three mutually exclusive modes of operation:
 
 1. CLI flags (recommended for quick runs):
-       python output_file_processing.py --project CSS ^
-           --model CSS1 --model CSS2 --model CSS3 ^
-           --ligand-dict "{\"Corticosteron\": \"C0R\", \"free\": \"free\"}" ^
-           --name-map "{\"C0R\": \"Corticosteron\"}"
+       python output_file_processing.py --project my_project ^
+           --model Seq1 --model Seq2 --model Seq3 ^
+           --ligand-dict "{\"Ligand01\": \"L01\", \"free\": \"free\"}" ^
+           --name-map "{\"L01\": \"Ligand01\"}"
 
 2. Config file:
        python output_file_processing.py --config config.json
 
 3. Console script (if boltz2_utils is installed):
-       boltz-process-output --project CSS --model CSS1 --ligand-dict "..." --name-map "..."
+       boltz-process-output --project my_project --model Seq1 --ligand-dict "..." --name-map "..."
 
 WORKING DIRECTORY MATTERS
 -------------------------
