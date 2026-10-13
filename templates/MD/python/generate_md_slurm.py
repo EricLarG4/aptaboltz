@@ -9,9 +9,9 @@ project parameters, and writes a configured .slurm file ready for sbatch.
 Usage (from the MD/ directory)::
 
     python python/generate_md_slurm.py \\
-        --experiment CSS1_HCY_constrained \\
+        --experiment Seq1_L01_constrained \\
         --array 1,2,3,5,7 \\
-        --scratchdir scratch/boltz/projects/CSS/MD
+        --scratchdir scratch/boltz/projects/my_project/MD
 
 Output:  ``./slurm/<experiment>_PrepAndMin.slurm``
 
@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiment",
         required=True,
-        help="Experiment name (e.g. CSS1_HCY_constrained). "
+        help="Experiment name (e.g. Seq1_L01_constrained). "
         "Used for SBATCH -J, EXPERIMENT=, and the output filename.",
     )
     parser.add_argument(
