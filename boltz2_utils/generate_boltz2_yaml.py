@@ -249,14 +249,14 @@ def _resolve_pairs(
     **Per-sequence** (same pairs for all ligands, including "free")::
 
         additional_pairs = {
-            "CSS1": [(1, 10), (2, 9)],
-            "CSS2": [("A", 3, "B", 8)],
+            "Seq1": [(1, 10), (2, 9)],
+            "Seq2": [("A", 3, "B", 8)],
         }
 
     **Per-sequence + per-ligand** (different pairs for different conditions)::
 
         additional_pairs = {
-            "CSS1": {
+            "Seq1": {
                 "free": [("A", 1, "A", 10)],        # only for free (no ligand)
                 "C0R":  [("A", 5, "B", 10)],         # only for C0R
                 "*":    [("A", 2, "A", 9)],           # fallback for all other ligands
