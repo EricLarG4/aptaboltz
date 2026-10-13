@@ -2,10 +2,10 @@
 CLI entry point for Boltz-2 output processing.
 
 Usage:
-    boltz-process-output --project CSS ^
-        --model CSS1 --model CSS2 --model CSS3 ^
-        --ligand-dict "{\"Corticosteron\": \"C0R\", \"free\": \"free\"}" ^
-        --name-map "{\"C0R\": \"Corticosteron\"}"
+    boltz-process-output --project my_project ^
+        --model Seq1 --model Seq2 --model Seq3 ^
+        --ligand-dict "{\"Ligand01\": \"L01\", \"free\": \"free\"}" ^
+        --name-map "{\"L01\": \"Ligand01\"}"
 
 For full documentation see README.md §5.
 """
