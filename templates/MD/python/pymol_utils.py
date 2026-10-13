@@ -45,20 +45,20 @@ Usage
 Import from a project script::
 
     from pymol_utils import process_final_min
-    process_final_min("CSS", "Seq1_C0R_constrained", "J1234567")
+    process_final_min("my_project", "Seq1_C0R_constrained", "J1234567")
 
 Or use individual functions::
 
     from pymol_utils import load_constraints, color_constrained_residues
 
-    constraints = load_constraints("CSS", "Seq1_C0R_constrained")
+    constraints = load_constraints("my_project", "Seq1_C0R_constrained")
     if constraints:
         color_constrained_residues(constraints)
 
 Generate a Mol* viewer::
 
     from pymol_utils import generate_minimized_viewer
-    generate_minimized_viewer("CSS", "CSS1_free_constrained", "J1129505")
+    generate_minimized_viewer("my_project", "Seq1_free_constrained", "J1234567")
 """
 
 import base64
@@ -81,11 +81,13 @@ import yaml
 #  YAML resolution
 # =====================================================================
 
-# MD experiment names may not match the Boltz-2 YAML file name (e.g. the PQ4
-# bound experiment is "PQ4_PQ_constrained" but its YAML is named after the
-# ligand "Piperaquine").  Map experiment -> YAML stem when they differ.
+# MD experiment names may not match the Boltz-2 YAML file name (e.g. a bound
+# experiment is called "Seq1_bound_constrained" but its YAML is named after the
+# ligand "L01").  Map experiment -> YAML stem when they differ.  Add your own
+# entries below; an empty dict means the experiment name already matches the
+# YAML file name.
 _YAML_ALIASES = {
-    "PQ4_PQ_constrained": "PQ4_Piperaquine_constrained",
+    # "my_experiment_constrained": "my_ligand_constrained",
 }
 
 
@@ -168,7 +170,7 @@ def load_constraints(project, experiment, verbose=True, stem_length=0):
     Parameters
     ----------
     project : str
-        Project directory name (e.g. ``"CSS"``).
+        Project directory name (e.g. ``"my_project"``).
     experiment : str
         Experiment name (e.g. ``"Seq1_C0R_constrained"``).
     verbose : bool, default True
@@ -412,7 +414,7 @@ def process_final_min(project, experiment, job):
     Parameters
     ----------
     project : str
-        Project directory name (e.g. ``"CSS"``).
+        Project directory name (e.g. ``"my_project"``).
     experiment : str
         Experiment name, e.g. ``"Seq1_C0R_constrained"``.
     job : str
@@ -807,11 +809,11 @@ def generate_minimized_viewer(project, experiment, job, verbose=True,
     Parameters
     ----------
     project : str
-        Project directory name (e.g. ``"CSS"``, ``"PQ4"``).
+        Project directory name (e.g. ``"my_project"``, ``"other_project"``).
     experiment : str
-        Experiment name (e.g. ``"CSS1_free_constrained"``).
+        Experiment name (e.g. ``"Seq1_free_constrained"``).
     job : str
-        Job identifier (e.g. ``"J1129505"``).
+        Job identifier (e.g. ``"J1234567"``).
     verbose : bool, default True
         If False, suppresses status prints.
     stem_length : int, default 0
@@ -827,7 +829,7 @@ def generate_minimized_viewer(project, experiment, job, verbose=True,
 
     output_path = os.path.join(job_dir, f"{experiment}_{job}_final_min.mvsj")
 
-    # Neat display title (e.g. "CSS1 · HCY bound") instead of the raw
+    # Neat display title (e.g. "Seq1 · L01 bound") instead of the raw
     # {experiment}_{job}_final_min directory-style name
     if "free" in experiment:
         label = "Free"
@@ -908,13 +910,13 @@ def generate_minimized_essential_viewer(project, experiment, job, seq,
     Parameters
     ----------
     project : str
-        Project directory name (e.g. ``"CSS"``, ``"PQ4"``).
+        Project directory name (e.g. ``"my_project"``, ``"other_project"``).
     experiment : str
-        Experiment name (e.g. ``"CSS1_HCY_constrained"``).
+        Experiment name (e.g. ``"Seq1_L01_constrained"``).
     job : str
         Job identifier (e.g. ``"J1127346"``).
     seq : str
-        Sequence label (e.g. ``"CSS1"``), used in the display title.
+        Sequence label (e.g. ``"Seq1"``), used in the display title.
     stem_length : int
         Number of stem residues to add to each base number.
     bases : list of int
@@ -1186,9 +1188,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Generate Mol* viewer (.mvsj) for Amber MD minimised structures.",
     )
-    parser.add_argument("project", help="Project directory name (e.g. CSS, PQ4)")
-    parser.add_argument("experiment", help="Experiment name (e.g. CSS1_free_constrained)")
-    parser.add_argument("job", help="Job identifier (e.g. J1129505)")
+    parser.add_argument("project", help="Project directory name (e.g. my_project)")
+    parser.add_argument("experiment", help="Experiment name (e.g. Seq1_free_constrained)")
+    parser.add_argument("job", help="Job identifier (e.g. J1234567)")
     parser.add_argument("-q", "--quiet", action="store_true", help="Suppress status output")
 
     args = parser.parse_args()
