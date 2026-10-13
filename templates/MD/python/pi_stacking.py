@@ -58,7 +58,7 @@ BASE_RINGS = {
     "DC": [["N1", "C2", "N3", "C4", "C5", "C6"]],
     "DT": [["N1", "C2", "N3", "C4", "C5", "C6"]],
 }
-PROJECT = "PLACEHOLDER_PROJECT"        # project directory name (e.g. "PQ4")
+PROJECT = "PLACEHOLDER_PROJECT"        # project directory name (e.g. "my_project")
 EXPERIMENT = "PLACEHOLDER_EXPERIMENT"  # e.g. "PQ4_PQ_constrained"
 LIGAND_RESNAME = "PLACEHOLDER_LIGAND"  # ligand residue name in the topology/PDB (e.g. "PQ")
 LIGAND_BASE = f"{PROJECT}/MD/pmemd/out"
