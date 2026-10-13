@@ -416,7 +416,7 @@ This copies all MD pipeline scripts into the correct subdirectories:
 
 | Copy command | Destination | Files |
 |-------------|------------|-------|
-| `cp -r templates/MD/*` | `my_project/MD/` | `leap.sh`, `ligand_prep.sh`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `python/generate_pmemd_inputs.py`, `python/generate_md_slurm.py`, `python/model_prep.py`, `python/pymol_utils.py`, `python/pi_stacking.py`, `python/traj_utils.py`, `R/ions.R`, `R/md_utils.R`, `pmemd/in/` (+ `archive/`), `slurm/PrepAndMin.slurm` |
+| `cp -r templates/MD/*` | `my_project/MD/` | `leap.sh`, `ligand_prep.sh`, `orca_steps_wsl.sh`, `multiwfn_steps_*.ps1/.sh`, `python/generate_pmemd_inputs.py`, `python/generate_md_slurm.py`, `python/generate_hbond_cpptraj.py`, `python/model_prep.py`, `python/pymol_utils.py`, `python/pi_stacking.py`, `python/traj_utils.py`, `R/ions.R`, `R/md_utils.R`, `pmemd/in/` (+ `archive/`), `slurm/PrepAndMin.slurm` |
 
 ---
 
@@ -1323,6 +1323,7 @@ resulting `n_Na` / `n_Mg` / `n_Cl` counts in
 | `ions.R` | Any (R) | data.table, DT |
 | `pymol_utils.py`, `traj_utils.py` | Any (PyMOL) | Python ≥ 3.7, PyMOL; `traj_utils.py` also needs `molviewspec` |
 | `pi_stacking.py` | Any | Python ≥ 3.7, MDAnalysis, RDKit |
+| generate_hbond_cpptraj.py | Any | Python ≥ 3.7, PyYAML (reads the Boltz-2 YAML to size the H-bond mask) |
 | `generate_pmemd_inputs.py`, `generate_md_slurm.py` | Any | Python ≥ 3.7 (standard library only) |
 
 > **Python version note.**  The MD scripts run on your *cluster*, not in the
@@ -1807,14 +1808,52 @@ H-bond contacts:
    presence heatmap and `contacts_summary()` the occupancy/geometry table.
 
 The `hbond`/`contactseries` files are **not** produced by the SLURM
-pipeline: they come from a per-project, manually maintained cpptraj script
-(`{project}/MD/hbond_analysis.cpptraj`) that hard-codes the job directory
-and task IDs.  After starting a new MD job you must update that script to
-point at the new job's task dirs (and re-run it with cpptraj) before the
-tracking functions can see the new run — unlike `pi_stacking.py`, which
-scans `pmemd/out/` and uses the newest job automatically.
+pipeline.  Generate the cpptraj input for them with
+`generate_hbond_cpptraj.py` (below), then re-run it and `cpptraj` after
+each new MD job, so the tracking functions see the new run.  This contrasts
+with `pi_stacking.py`, which scans `pmemd/out/` and picks the newest job
+automatically and needs no regeneration.
 
-Pi-stacking interactions (per-ligand — the ligand must have aromatic rings)
+#### H-bond analysis: `generate_hbond_cpptraj.py`
+
+**Script:** `templates/MD/python/generate_hbond_cpptraj.py`  copy to
+`{project}/MD/python/` and run from `{project}/MD/`:
+
+```bash
+python python/generate_hbond_cpptraj.py \
+    --project my_project --experiment my_seq_L01 --job J1234567
+
+cpptraj -i hbond_analysis.cpptraj
+```
+
+Writes `hbond_analysis.cpptraj` in the current directory, containing one
+block per replica that records per-frame H-bond contacts, average contacts
+(`avgout`, the file the R readers consume), a contact-series CSV, and a
+lifetime curve — each into that replica's `prep/traj/`.
+
+| Arg | Default | Description |
+|-----|---------|-------------|
+| `--project` | required | Project directory name |
+| `--experiment` | required | Experiment name, e.g. `my_seq_L01` |
+| `--job` | **auto** | Omitted = the highest-numbered `J*` directory for the experiment; the choice is reported |
+| `--tasks` | **auto** | Omitted = **auto-discovery**: every `task_*` with a `prep/traj/*_stripped.prmtop` is included.  Replicas without one are reported on stderr and skipped, so check the summary.  Pass `0-2` or `0,1,2` for a fully reproducible selection |
+| `--yaml` | `../yaml/<experiment>.yaml` | Boltz-2 YAML used to size the H-bond mask |
+| `--dna-end` | **from YAML** | Macromolecule length; read from the first `dna`/`rna`/`protein` sequence block.  The mask is `:1-(dna_end + ligands)`.  Errors rather than guessing if the YAML is absent |
+| `--ligands` | `1` | Number of ligand residues following the macromolecule |
+| `--angle` | `135` | Minimum H-bond angle (degrees) |
+| `--dist` | `3.2` | Maximum donor-acceptor distance (A) |
+| `--stride` | `5` | Frame stride passed to `trajin` |
+| `--series-name` | `step10_uuseries` | Base name for the per-frame H-bond presence series, written per replica into `prep/traj/`.  Required by the `contactseries` and `lifetime` steps - do not remove the keyword |
+| `--out` | `hbond_analysis.cpptraj` | Output file |
+
+> **Why a generator.**  This script used to be hand-maintained per project,
+> hard-coding the job directory and task IDs, which meant editing it every
+> time a new job was analysed.  Generating it from the run's actual layout
+> makes the H-bond inputs reproducible and regenerable instead of rotated by
+> hand.  The generated file is not meant to be edited - change the
+> arguments and regenerate.
+
+Pi-stacking interactions (per-ligand - the ligand must have aromatic rings)
 use the same workflow, but the trajectory data are precomputed externally:
 
 **Script:** `templates/MD/python/pi_stacking.py` → copy to
@@ -2057,7 +2096,8 @@ The output is one `.mvsj` file per job at:
 | `templates/MD/python/generate_pmemd_inputs.py` | `macromol_type`, `macromol_start`, `macromol_end`, `ligand_idx`, `production_ns` — generates all 11 `pmemd/in/*.in` files from system parameters (§9.5) |
 | `templates/MD/pmemd/in/step1.in` … `step10.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5); no manual editing needed. The `archive/` directory holds previous versions |
 | `templates/MD/pmemd/in/final_min.in` | Now **generated** by `generate_pmemd_inputs.py` (§9.5) |
-| `templates/MD/python/generate_md_slurm.py` | `experiment`, `array`, `scratchdir`, `gpu`, `residues`, `solvent` — generates a configured `.slurm` from `PrepAndMin.slurm` (§9.2) |
+| `templates/MD/python/generate_md_slurm.py` | `experiment`, `array`, `scratchdir`, `gpu`, `residues`, `solvent` 
+| `templates/MD/python/generate_hbond_cpptraj.py` | `project`, `experiment` (required); `job`, `tasks` and `dna-end` default to auto-detect (see §9.10) |— generates a configured `.slurm` from `PrepAndMin.slurm` (§9.2) |
 | `templates/MD/python/pymol_utils.py` | No edits required — reusable functions imported by project scripts; PyMOL sessions, Mol* minimized/essential viewers (.mvsj), and per-task constraint verification (§9.11) |
 | `templates/MD/python/pi_stacking.py` | `PROJECT`, `EXPERIMENT`, `LIGAND_RESNAME`, `LIGAND_SMILES` (Configuration block) — precomputes ligand-DNA pi-stacking CSVs + `ring_defs.json` for the tracking functions in `md_utils.R` (§9.10); requires `MDAnalysis`, `RDKit` |
 | `templates/MD/python/traj_utils.py` | No edits required — reusable functions imported by project scripts; generates Mol* trajectory viewer (.mvsj) files from Amber MD trajectories (§9.12) |
