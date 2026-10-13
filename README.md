@@ -1708,6 +1708,24 @@ different ligand, protein, RNA, etc.):
 | Restart protection skips wrong steps | Filename mismatch | Check `SUFFIX` construction; `_${TASK}_J${JOBID}` must match existing `.ncrst` files |
 
 ### 9.10 MD Trajectory Analysis
+> #### Working directory: this section differs from §8
+>
+> The MD **preparation** scripts in §8.7–§8.9 are run from `{project}/MD/`.
+> The MD **analysis** scripts in §9.10–§9.12 are run from the **repository
+> root**, the directory that *contains* the project folder, because they take
+> `project` as a bare directory name and build paths such as
+> `{project}/MD/pmemd/out/…`.
+>
+> | Script | Run from |
+> |--------|----------|
+> | `model_prep.py` (§8.7), `leap.sh` (§8.8), `ligand_prep.sh` (§8.6), `generate_pmemd_inputs.py` (§9.5), `generate_md_slurm.py` (§9.2), `generate_hbond_cpptraj.py` (§9.10) | `{project}/MD/` |
+> | `pi_stacking.py` (§9.10), `pymol_utils.py` (§9.11), `traj_utils.py` (§9.12) | repository root |
+> | `input_file_generator.py` (§3), `output_file_processing.py` (§5) | repository root |
+>
+> Launching from the wrong directory usually fails loudly (missing input), but
+> not always — see [§6.4](#64-troubleshooting--boltz-2-prediction-pipeline)
+> for the cases that fail silently.
+
 
 **Script:** `templates/MD/R/md_utils.R` → copy to `{project}/MD/R/` (included
 in the `cp -r templates/MD/*` copy step in §2.2).
@@ -1861,6 +1879,8 @@ use the same workflow, but the trajectory data are precomputed externally:
 `EXPERIMENT`, `LIGAND_RESNAME`, `LIGAND_SMILES`), then run:
 
 ```bash
+# Run from the repository root (see the working-directory note at the top
+# of this section) - PROJECT is a bare project directory name.
 conda run -n boltz python {project}/MD/python/pi_stacking.py
 ```
 
@@ -1978,7 +1998,9 @@ for exp in sorted(os.listdir(output_root)):
 Or via the command line:
 
 ```bash
-python python/pymol_utils.py my_project Seq1_free_constrained J1234567
+# Run from the repository root (see the working-directory note at the top
+# of 9.10): the leading path AND the project argument both resolve from here.
+python my_project/MD/python/pymol_utils.py my_project Seq1_free_constrained J1234567
 ```
 
 The output is a single `.mvsj` file per job at:
