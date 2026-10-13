@@ -73,7 +73,7 @@
 #   ./leap.sh
 #
 #   # Custom prefix, ligand and model range
-#   ./leap.sh -p CSS1 -l hcy -s 5 -e 18
+#   ./leap.sh -p Seq1 -l L01 -s 5 -e 18
 #
 #   # Custom ion counts (24 Cl⁻ total → 2 for MgCl₂ + 22 for NaCl)
 #   ./leap.sh -n 60 -m 1 -c 24
