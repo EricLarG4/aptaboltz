@@ -104,11 +104,11 @@ def prep_model(
     os.makedirs(output_dir, exist_ok=True)
 
     for model in models:
-        cif_path = f"{input_dir}/input_model_{models[model]}.cif"
+        cif_path = f"{input_dir}/input_model_{model}.cif"
         if has_ligand:
             lgd_path = f"ff/{lgd_file}.pdb"
 
-        print(f"Processing input_model_{models[model]}==========")
+        print(f"Processing input_model_{model}==========")
 
         cmd.load(cif_path)
         print(f"Loaded {cif_path}")
@@ -135,7 +135,7 @@ def prep_model(
         if has_ligand:
             # Determine the actual ligand residue name in the prediction
             pred_lgd = output_lgd
-            if cmd.count_atoms(f"input_model_{models[model]} and resn {output_lgd}") == 0 and cmd.count_atoms(f"input_model_{models[model]} and resn LIG1") > 0:
+            if cmd.count_atoms(f"input_model_{model} and resn {output_lgd}") == 0 and cmd.count_atoms(f"input_model_{model} and resn LIG1") > 0:
                 pred_lgd = "LIG1"
                 print(f"Ligand '{output_lgd}' not found; using 'LIG1' from prediction.")
 
@@ -152,7 +152,7 @@ def prep_model(
             # Boltz predictions carry no hydrogens while the mol2-derived
             # reference does, so the reference hydrogens are stripped first.
             cmd.load(lgd_path)
-            pred_sel = f"input_model_{models[model]} and resn {pred_lgd}"
+            pred_sel = f"input_model_{model} and resn {pred_lgd}"
             cmd.remove(f"{lgd_file} and hydro")
             if use_pair_fit:
                 cmd.pair_fit(lgd_file, pred_sel)
@@ -169,14 +169,14 @@ def prep_model(
             print(f"Original ligand removed. Chain B reassigned to {output_lgd}.")
 
             # Merge into a single object and clean up
-            cmd.create("seq", f"input_model_{models[model]} or {lgd_file}")
-            cmd.delete(f"input_model_{models[model]} or {lgd_file}")
+            cmd.create("seq", f"input_model_{model} or {lgd_file}")
+            cmd.delete(f"input_model_{model} or {lgd_file}")
             cmd.sort()
             print("Merged into a single object 'seq' and cleaned up.")
         else:
             # No ligand — rename the loaded model directly
-            cmd.create("seq", f"input_model_{models[model]}")
-            cmd.delete(f"input_model_{models[model]}")
+            cmd.create("seq", f"input_model_{model}")
+            cmd.delete(f"input_model_{model}")
             cmd.alter("chain A", "segi=''")
             cmd.sort()
             print("No ligand — model prepared without ligand operations.")
