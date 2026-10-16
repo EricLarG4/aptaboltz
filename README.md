@@ -1321,7 +1321,7 @@ resulting `n_Na` / `n_Mg` / `n_Cl` counts in
 | `model_prep.py` | Any (PyMOL) | PyMOL (pymol-open-source preferred) |
 | `leap.sh` | WSL/Linux | AmberTools (tleap, ambpdb) |
 | `ions.R` | Any (R) | data.table, DT |
-| `pymol_utils.py`, `traj_utils.py` | Any (PyMOL) | Python ≥ 3.7, PyMOL; `traj_utils.py` also needs `molviewspec` |
+| `pymol_utils.py`, `traj_utils.py` | Any (PyMOL) | Python ≥ 3.7, PyMOL; `traj_utils.py` also needs `molviewspec`; `pymol_utils.py` needs `openpyxl` only for reading `.xlsx` essential-base tables (CSV needs no extra package) |
 | `pi_stacking.py` | Any | Python ≥ 3.7, MDAnalysis, RDKit |
 | generate_hbond_cpptraj.py | Any | Python ≥ 3.7, PyYAML (reads the Boltz-2 YAML to size the H-bond mask) |
 | `generate_pmemd_inputs.py`, `generate_md_slurm.py` | Any | Python ≥ 3.7 (standard library only) |
@@ -1939,7 +1939,8 @@ by project-specific entry-point scripts (e.g. `final_min_pymol.py`).
 | `constraint_residue_annotation(constraints)` | Build a Mol* residue-colour annotation from constraint components — each connected component of constrained residues gets the next colour from the `CONSTRAINT_COLORS` palette. |
 | `color_constrained_residues(constraints)` | Build a graph from constraint pairs, find connected components via BFS, and assign each component a unique colour from the `CONSTRAINT_COLORS` palette.  Automatically falls back to residue-number-only selection when chain IDs are absent in the PDB. |
 | `generate_minimized_viewer(project, experiment, job, verbose = TRUE, stem_length = 0)` | Generate a multi-snapshot Mol* web viewer file (.mvsj) for the minimised structures, with DNA bases coloured by type (A→lightblue, C→plum, G→tan, T→lightgreen).  Produces one snapshot per task replicate with illustrative-style cartoon rendering + outline.  `stem_length` excludes stem-region constraints from the colouring. |
-| `generate_minimized_essential_viewer(project, experiment, job, seq, stem_length, bases, verbose = TRUE)` | Generate a multi-snapshot .mvsj colouring a curated set of essential DNA bases by identity (A/C/G/T, matching the PyMOL scheme), with the cartoon drawn white and only the annotated residues coloured. |
+| `generate_minimized_essential_viewer(project, experiment, job, seq, stem_length, bases, verbose = TRUE)` | Generate a multi-snapshot .mvsj colouring a curated set of essential DNA bases by identity (A/C/G/T, matching the PyMOL scheme), with the cartoon drawn white and only the annotated residues coloured.  `bases` excludes the stem, which is added via `stem_length`. |
+| `load_essential_bases(path, seq, default_stem_length = 0)` | Read `(bases, stem_length)` for one sequence from a **CSV or XLSX** table with columns `seq`, `bases` (comma-separated residue numbers) and `stem_length` (optional).  Only the row matching `seq` is used; a missing `stem_length` falls back to `default_stem_length`.  Raises `FileNotFoundError` if the path is missing, and `RuntimeError` for an unsupported format, an unreadable XLSX (needs `openpyxl`), or no matching row — the error lists the labels that *are* present.  Reading `.xlsx` requires `openpyxl`; CSV needs no extra package. |
 | `process_minimized_constraint_verification(project, experiment, job, verbose = TRUE, stem_length = 0)` | Compute per-task satisfaction of each contact restraint against the minimised structures' minimum heavy-atom distances (ambiguity-aware, as in Boltz-2), and write one row per task replicate to `{experiment}_{job}_minimized_constraints.csv`. |
 
 #### Usage Examples
@@ -1999,9 +2000,40 @@ Or via the command line:
 
 ```bash
 # Run from the repository root (see the working-directory note at the top
-# of 9.10): the leading path AND the project argument both resolve from here.
+# of §9.10): the leading path AND the project argument both resolve from here.
 python my_project/MD/python/pymol_utils.py my_project Seq1_free_constrained J1234567
 ```
+
+The leading `ACTION` selects which entrypoint runs and defaults to `viewer`,
+so the bare three-argument form above is unchanged.  Run from the repository
+root:
+
+| Command | Produces |
+|---------|----------|
+| `pymol_utils.py viewer PROJECT EXPERIMENT JOB` | `{experiment}_{job}_final_min.mvsj` |
+| `pymol_utils.py finalmin PROJECT EXPERIMENT JOB` | `{experiment}_final_min.pse` (+ the constraint-coloured `.pse` when constraints exist) |
+| `pymol_utils.py essential PROJECT EXPERIMENT JOB --bases 6,11,14 [--seq SEQ]` | `{experiment}_{job}_final_min_essential.mvsj` - supply the bases with `--bases`, or with `--bases-file` |
+| `pymol_utils.py essential PROJECT EXPERIMENT JOB --bases-file data/essential_bases.csv --seq Seq1` | same, reading `bases` and `stem_length` from the row matching `--seq` |
+| `pymol_utils.py constraints PROJECT EXPERIMENT JOB` | `{experiment}_{job}_minimized_constraints.csv` (needs a constrained experiment) |
+
+Add `-q/--quiet` to any of them.  `constraints` (and the constraint-coloured
+`.pse`) require a constrained run; on an unconstrained experiment
+`load_constraints()` returns `None` and they produce nothing.
+
+For `essential`, keep the curated base list in a per-project table under
+`{project}/data/`, one row per sequence:
+
+```csv
+seq,bases,stem_length
+Seq1,"1,3,4,7,8,9,14,15,16,17,18,19,21,29,30",8
+Seq2,"1,2,3,4,9,10,11,12,13,14,15,16,17,18,24,25,26,27,28,29,30",8
+```
+
+`bases` is a comma-separated list of residue numbers **within the aptamer
+region, excluding the stem** - `generate_minimized_essential_viewer()` adds
+`stem_length` to each.  `.xlsx` workbooks with the same columns are also accepted
+(`--bases-file data/essential_bases.xlsx`), which requires `openpyxl`.
+`--stem-length` overrides the value in the table.
 
 The output is a single `.mvsj` file per job at:
 

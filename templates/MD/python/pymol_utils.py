@@ -894,6 +894,99 @@ def _essential_base_annotation_from_pdb(pdb_path, essential_seqids):
     return annotation
 
 
+def load_essential_bases(path, seq, default_stem_length=0):
+    """Read essential base numbers (and stem length) for *seq* from a table.
+
+    Accepts a CSV or an XLSX workbook with the columns ``seq``, ``bases`` and
+    ``stem_length``; ``bases`` is a comma-separated list of residue numbers
+    within the aptamer region, excluding the stem.  This is the layout used by
+    the per-project ``data/essential_bases.{csv,xlsx}`` workbooks.
+
+    Only the row whose ``seq`` matches is used.  ``stem_length`` is optional;
+    when absent or blank, *default_stem_length* is returned.
+
+    Parameters
+    ----------
+    path : str
+        Path to the ``.csv`` or ``.xlsx`` file.
+    seq : str
+        Sequence label to look up (e.g. ``"Seq1"``).
+    default_stem_length : int, default 0
+        Value returned when the row has no usable ``stem_length``.
+
+    Returns
+    -------
+    (bases, stem_length) : (list of int, int)
+
+    Raises
+    ------
+    FileNotFoundError
+        If *path* does not exist.
+    RuntimeError
+        If the format cannot be read (XLSX without ``openpyxl``) or if no row
+        matches *seq*.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"essential-bases table not found: {path}")
+
+    rows = []
+    ext = os.path.splitext(path)[1].lower()
+    if ext in (".xlsx", ".xlsm", ".xls"):
+        try:
+            import openpyxl
+        except ImportError:
+            raise RuntimeError(
+                f"reading {ext} needs openpyxl (pip install openpyxl), or save "
+                f"the table as .csv instead"
+            )
+        workbook = openpyxl.load_workbook(path, data_only=True)
+        sheet = workbook.active
+        if sheet is None:
+            raise RuntimeError(f"no active sheet in {path}")
+        header = [str(c.value).strip().lower() if c.value is not None else ""
+                  for c in next(sheet.iter_rows(max_row=1))]
+        for values in sheet.iter_rows(min_row=2, values_only=True):
+            rows.append(dict(zip(header, values)))
+    elif ext == ".csv":
+        import csv
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            for record in csv.DictReader(fh):
+                rows.append({(k or "").strip().lower(): v for k, v in record.items()})
+    else:
+        raise RuntimeError(f"unsupported essential-bases format: {ext} (use .csv or .xlsx)")
+
+    for row in rows:
+        # csv.DictReader files surplus fields under a None key, which the
+        # comprehension above normalised to ""; either way it means the row has
+        # more columns than the header, i.e. an unquoted bases list.
+        if None in row or "" in row:
+            raise RuntimeError(
+                f"{path}: row for seq={str(row.get('seq', '')).strip()!r} has more "
+                f"columns than the header ({', '.join(k for k in row if k)}). "
+                f"The 'bases' list must be quoted, e.g. \"1,3,4\",8 - otherwise the "
+                f"extra values are read as separate columns."
+            )
+        label = str(row.get("seq", "")).strip()
+        if label != seq:
+            continue
+        bases = [int(b) for b in str(row.get("bases", "")).replace(" ", "").split(",")
+                 if b]
+        if not bases:
+            break
+        stem = row.get("stem_length")
+        try:
+            stem_length = int(str(stem).strip())
+        except (TypeError, ValueError):
+            stem_length = default_stem_length
+        return bases, stem_length
+
+    known = sorted({str(r.get("seq", "")).strip() for r in rows if r.get("seq")})
+    raise RuntimeError(
+        f"no row for seq={seq!r} in {path}"
+        + (f" (available: {', '.join(known)})" if known else " (no 'seq' column found)")
+    )
+
+
 def generate_minimized_essential_viewer(project, experiment, job, seq,
                                         stem_length, bases, verbose=True):
     """Generate a multi-snapshot .mvsj colouring essential DNA bases.
@@ -1185,13 +1278,65 @@ def process_minimized_constraint_verification(project, experiment, job,
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Generate Mol* viewer (.mvsj) for Amber MD minimised structures.",
-    )
-    parser.add_argument("project", help="Project directory name (e.g. my_project)")
-    parser.add_argument("experiment", help="Experiment name (e.g. Seq1_free_constrained)")
-    parser.add_argument("job", help="Job identifier (e.g. J1234567)")
-    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress status output")
+    ACTIONS = ("viewer", "finalmin", "essential", "constraints")
 
-    args = parser.parse_args()
-    generate_minimized_viewer(args.project, args.experiment, args.job, verbose=not args.quiet)
+    parser = argparse.ArgumentParser(
+        description="Post-process Amber MD final-minimised structures.",
+        epilog="With no ACTION the command defaults to 'viewer', so the legacy "
+               "form 'pymol_utils.py PROJECT EXPERIMENT JOB' still works.",
+    )
+    parser.add_argument(
+        "args", nargs="+", metavar="ARG",
+        help="ACTION PROJECT EXPERIMENT JOB  (ACTION optional, default: viewer)",
+    )
+    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress status output")
+    parser.add_argument("--seq", default=None,
+                        help="Sequence label used in display titles (essential only)")
+    parser.add_argument("--bases", default=None,
+                        help="Comma-separated residue numbers to colour as essential "
+                             "(essential only), e.g. 6,11,14")
+    parser.add_argument("--bases-file", default=None,
+                        help="CSV/XLSX table with seq,bases,stem_length columns; "
+                             "the row matching --seq is used (essential only)")
+    parser.add_argument("--stem-length", type=int, default=None,
+                        help="Stem residues added to each base number; defaults to "
+                             "--bases-file, else 0")
+
+    argv = parser.parse_args()
+    argv.args = list(argv.args)
+    action = argv.args[0] if argv.args and argv.args[0] in ACTIONS else "viewer"
+    positional = argv.args[1:] if action == argv.args[0] else argv.args
+    if len(positional) != 3:
+        parser.error("expected PROJECT EXPERIMENT JOB")
+    project, experiment, job = positional
+    verbose = not argv.quiet
+    stem_length = argv.stem_length if argv.stem_length is not None else 0
+
+    if action == "finalmin":
+        process_final_min(project, experiment, job)
+    elif action == "essential":
+        seq_label = argv.seq or project
+        if argv.bases:
+            bases = [int(b) for b in argv.bases.split(",") if b.strip()]
+        elif argv.bases_file:
+            bases, file_stem = load_essential_bases(
+                argv.bases_file, seq_label, default_stem_length=0
+            )
+            if argv.stem_length is None:
+                stem_length = file_stem
+        else:
+            parser.error("'essential' needs --bases or --bases-file")
+        if verbose:
+            print(f"Essential bases for {seq_label} "
+                  f"(stem_length={stem_length}): {bases}")
+        generate_minimized_essential_viewer(
+            project, experiment, job, seq_label,
+            stem_length=stem_length, bases=bases, verbose=verbose,
+        )
+    elif action == "constraints":
+        process_minimized_constraint_verification(
+            project, experiment, job, verbose=verbose, stem_length=stem_length
+        )
+    else:
+        generate_minimized_viewer(project, experiment, job, verbose=verbose,
+                                 stem_length=stem_length)
